@@ -2,6 +2,7 @@
 #include "raccoon/ASTPrinter.hpp"
 #include "raccoon/Lexer.hpp"
 #include "raccoon/Parser.hpp"
+#include "raccoon/SemanticAnalyzer.hpp"
 #include "raccoon/Token.hpp"
 #include <cstring>
 #include <fstream>
@@ -144,6 +145,13 @@ void print_parser_errors(const std::vector<ParserError> &errors) {
   }
 }
 
+void print_semantic_errors(const std::vector<SemanticError> &errors) {
+  for (const auto &error : errors) {
+    std::println(std::cerr, "{}:{}:{}: error: {}", error.location.filename,
+                 error.location.line, error.location.column, error.message);
+  }
+}
+
 int main(int argc, char *argv[]) {
   auto parse_result = parse_args(argc, argv);
 
@@ -195,7 +203,15 @@ int main(int argc, char *argv[]) {
       return 0;
     }
 
-    std::println("Parsing successful: {} functions", ast->functions.size());
+    SemanticAnalyzer analyzer;
+    auto semantic_result = analyzer.analyze(*ast);
+
+    if (!semantic_result.has_value()) {
+      print_semantic_errors(semantic_result.error());
+      return 1;
+    }
+
+    std::println("Semantic analysis successful");
 
     return 0;
 

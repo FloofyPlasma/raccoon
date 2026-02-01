@@ -10,12 +10,14 @@ add_executable(unit_tests
         unit/test_main.cpp
         unit/lexer/LexerTests.cpp
         unit/parser/ParserTests.cpp
+        unit/semantic/SemanticTests.cpp
 )
 
 target_link_libraries(unit_tests
         PRIVATE
         raccoon_lexer
         raccoon_parser
+        raccoon_semantic
         Catch2::Catch2WithMain
 )
 
