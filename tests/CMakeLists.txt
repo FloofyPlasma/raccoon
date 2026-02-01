@@ -13,6 +13,7 @@ add_executable(unit_tests
         unit/semantic/SemanticTests.cpp
         unit/ir/IRTests.cpp
         unit/llvm_backend/LLVMBackendTests.cpp
+        unit/linker/LinkerTests.cpp
 )
 
 target_link_libraries(unit_tests
@@ -22,6 +23,7 @@ target_link_libraries(unit_tests
         raccoon_semantic
         raccoon_ir
         raccoon_llvm_backend
+        raccoon_linker
         Catch2::Catch2WithMain
 )
 

@@ -4,6 +4,7 @@
 #include "raccoon/IRPrinter.hpp"
 #include "raccoon/LLVMBackend.hpp"
 #include "raccoon/Lexer.hpp"
+#include "raccoon/Linker.hpp"
 #include "raccoon/Parser.hpp"
 #include "raccoon/SemanticAnalyzer.hpp"
 #include "raccoon/Token.hpp"
@@ -169,6 +170,12 @@ void print_llvm_errors(const std::vector<LLVMError> &errors) {
   }
 }
 
+void print_linker_errors(const std::vector<LinkerError> &errors) {
+  for (const auto &error : errors) {
+    std::println(std::cerr, "linker error: {}", error.message);
+  }
+}
+
 int main(int argc, char *argv[]) {
   auto parse_result = parse_args(argc, argv);
 
@@ -280,11 +287,14 @@ int main(int argc, char *argv[]) {
       return 1;
     }
 
-    std::println("Object file generated: {}", obj_file);
-    std::println("\nTo create an executable, link with:");
-    std::println("  clang {} -o {}", obj_file, output_file);
-    std::println("  or");
-    std::println("  gcc {} -o {}", obj_file, output_file);
+    Linker linker;
+    if (!linker.link(obj_file, output_file)) {
+      print_linker_errors(linker.get_errors());
+      return 1;
+    }
+
+    std::println("Executable generated: {}", output_file);
+    std::println("\nRun with: ./{}", output_file);
 
     return 0;
 

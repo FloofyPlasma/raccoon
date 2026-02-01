@@ -16,6 +16,9 @@ find_package(LLVM 21.1.6 REQUIRED CONFIG)
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
 
+find_package(LLD REQUIRED CONFIG)
+message(STATUS "Using LLDConfig.cmake in: ${LLD_DIR}")
+
 include_directories(${LLVM_INCLUDE_DIRS})
 separate_arguments(LLVM_DEFINITIONS_LIST NATIVE_COMMAND ${LLVM_DEFINITIONS})
 add_definitions(${LLVM_DEFINITIONS_LIST})
@@ -27,6 +30,7 @@ add_subdirectory(libs/parser)
 add_subdirectory(libs/semantic)
 add_subdirectory(libs/ir)
 add_subdirectory(libs/llvm_backend)
+add_subdirectory(libs/linker)
 add_subdirectory(src)
 
 enable_testing()
