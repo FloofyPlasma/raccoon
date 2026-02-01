@@ -11,9 +11,12 @@ target_include_directories(raccoon_linker
 
 target_link_libraries(raccoon_linker
         PUBLIC
-        lld
-        lldELF
         lldCommon
+        lldCOFF
+        lldELF
+        lldMachO
+        lldMinGW
+        lldWasm
 )
 
 target_compile_features(raccoon_linker PUBLIC cxx_std_23)

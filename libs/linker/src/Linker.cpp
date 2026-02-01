@@ -7,7 +7,11 @@
 #include <llvm/Support/raw_ostream.h>
 #include <sstream>
 
+LLD_HAS_DRIVER(coff)
 LLD_HAS_DRIVER(elf)
+LLD_HAS_DRIVER(mingw)
+LLD_HAS_DRIVER(macho)
+LLD_HAS_DRIVER(wasm)
 
 bool Linker::link(const std::string &object_file,
                   const std::string &output_file) {
@@ -198,11 +202,15 @@ bool Linker::link_with_lld_library(const std::vector<std::string> &object_files,
   llvm::raw_string_ostream stdout_os(stdout_str);
   llvm::raw_string_ostream stderr_os(stderr_str);
 
-  bool result = lld::elf::link(llvm::ArrayRef(args.data(), args.size()),
-                               stdout_os, stderr_os, false, false);
+  lld::Result res = lld::lldMain(llvm::ArrayRef<const char*>(args.data(), args.size()), stdout_os, stderr_os, LLD_ALL_DRIVERS);
 
-  if (!result) {
+  if (res.retCode != 0) {
     error("LLD linking failed: " + stderr_str);
+    return false;
+  }
+
+  if (!res.canRunAgain) {
+    error("LLD entered an unrecoverable state; process should exit.");
     return false;
   }
 
