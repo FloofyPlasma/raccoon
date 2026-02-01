@@ -41,7 +41,7 @@ struct Token {
   SourceLocation location;
 
   // For literals that need parsed values
-  std::optional<std::int64_t> int_value;
+  std::optional<std::int64_t> int_value = std::nullopt;
 };
 
 std::string token_type_to_string(TokenType type);

@@ -1,4 +1,7 @@
+#include "raccoon/AST.hpp"
+#include "raccoon/ASTPrinter.hpp"
 #include "raccoon/Lexer.hpp"
+#include "raccoon/Parser.hpp"
 #include "raccoon/Token.hpp"
 #include <cstring>
 #include <fstream>
@@ -7,26 +10,28 @@
 #include <sstream>
 
 struct Option {
-  const char* flag;
-  const char* arg_name; // empty string if no argument
-  const char* description;
-  bool* bool_target = nullptr;
-  std::string* string_target = nullptr;
+  const char *flag;
+  const char *arg_name; // empty string if no argument
+  const char *description;
+  bool *bool_target = nullptr;
+  std::string *string_target = nullptr;
 };
 
 bool dump_tokens_flag = false;
+bool dump_ast_flag = false;
 std::string output_file = "a.out";
 
 Option constexpr options[] = {
-  {"--dump-tokens", "", "Print tokens and exit", &dump_tokens_flag, nullptr},
-  {"-o", "<file>", "Output file (default: a.out)", nullptr, &output_file},
+    {"--dump-tokens", "", "Print tokens and exit", &dump_tokens_flag, nullptr},
+    {"--dump-ast", "", "Print AST and exit", &dump_ast_flag, nullptr},
+    {"-o", "<file>", "Output file (default: a.out)", nullptr, &output_file},
 };
 
-void print_usage(const char* prog_name) {
+void print_usage(const char *prog_name) {
   std::println("Raccoon Compiler v0.1.0\n");
   std::println("Usage: {} [options] <source.rac>\n", prog_name);
   std::println("Options:");
-  for (const auto& opt : options) {
+  for (const auto &opt : options) {
     if (opt.arg_name[0] != '\0') {
       std::println("  {} {}", opt.flag, opt.arg_name);
     } else {
@@ -42,15 +47,14 @@ struct ParseResult {
   std::string error_message;
 };
 
-
-ParseResult parse_args(int argc, char* argv[]) {
+ParseResult parse_args(int argc, char *argv[]) {
   ParseResult result{true, std::nullopt, ""};
 
   for (int i = 1; i < argc; ++i) {
     bool matched = false;
 
     // Try to match against known options
-    for (auto& opt : options) {
+    for (auto &opt : options) {
       if (std::strcmp(argv[i], opt.flag) == 0) {
         matched = true;
 
@@ -61,8 +65,8 @@ ParseResult parse_args(int argc, char* argv[]) {
           // String argument
           if (i + 1 >= argc) {
             result.success = false;
-            result.error_message = std::format("Option {} requires an argument",
-                                              opt.flag);
+            result.error_message =
+                std::format("Option {} requires an argument", opt.flag);
             return result;
           }
           *opt.string_target = argv[++i];
@@ -104,19 +108,17 @@ std::string read_file(const std::string &filename) {
   return buffer.str();
 }
 
-void dump_tokens(const std::vector<Token>& tokens) {
+void dump_tokens(const std::vector<Token> &tokens) {
   std::println("Tokens:");
   std::println("-------");
-  for (const auto& token : tokens) {
+  for (const auto &token : tokens) {
     std::print("{}", token_type_to_string(token.type));
 
     if (!token.lexeme.empty()) {
       std::print(" '{}'", token.lexeme);
     }
 
-    std::print(" at {}:{}:{}",
-               token.location.filename,
-               token.location.line,
+    std::print(" at {}:{}:{}", token.location.filename, token.location.line,
                token.location.column);
 
     if (token.int_value.has_value()) {
@@ -128,8 +130,14 @@ void dump_tokens(const std::vector<Token>& tokens) {
   std::println("\nTotal: {} tokens", tokens.size());
 }
 
+void print_lexer_errors(const std::vector<LexerError> &errors) {
+  for (const auto &error : errors) {
+    std::println(std::cerr, "{}:{}:{}: error: {}", error.location.filename,
+                 error.location.line, error.location.column, error.message);
+  }
+}
 
-void print_errors(const std::vector<LexerError> &errors) {
+void print_parser_errors(const std::vector<ParserError> &errors) {
   for (const auto &error : errors) {
     std::println(std::cerr, "{}:{}:{}: error: {}", error.location.filename,
                  error.location.line, error.location.column, error.message);
@@ -151,7 +159,7 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  const std::string& input_file = parse_result.input_file.value();
+  const std::string &input_file = parse_result.input_file.value();
 
   try {
     std::string source = read_file(input_file);
@@ -160,7 +168,7 @@ int main(int argc, char *argv[]) {
     auto tokens = lexer.lex();
 
     if (lexer.has_errors()) {
-      print_errors(lexer.get_errors());
+      print_lexer_errors(lexer.get_errors());
       return 1;
     }
 
@@ -169,12 +177,29 @@ int main(int argc, char *argv[]) {
       return 0;
     }
 
-    std::println("Lexing successful: {} tokens", tokens.size());
-    std::println("Parser not yet implemented)");
+    Parser parser(std::move(tokens));
+    auto parser_result = parser.parse();
+
+    if (!parser_result.has_value()) {
+      print_parser_errors(parser_result.error());
+      return 1;
+    }
+
+    auto ast = std::move(parser_result.value());
+
+    if (dump_ast_flag) {
+      std::println("AST:");
+      std::println("----");
+      ASTPrinter printer;
+      ast->accept(printer);
+      return 0;
+    }
+
+    std::println("Parsing successful: {} functions", ast->functions.size());
 
     return 0;
 
-  } catch (const std::exception& e) {
+  } catch (const std::exception &e) {
     std::println(std::cerr, "Error: {}", e.what());
     return 1;
   }
