@@ -12,6 +12,7 @@ add_executable(unit_tests
         unit/parser/ParserTests.cpp
         unit/semantic/SemanticTests.cpp
         unit/ir/IRTests.cpp
+        unit/llvm_backend/LLVMBackendTests.cpp
 )
 
 target_link_libraries(unit_tests
@@ -20,6 +21,7 @@ target_link_libraries(unit_tests
         raccoon_parser
         raccoon_semantic
         raccoon_ir
+        raccoon_llvm_backend
         Catch2::Catch2WithMain
 )
 

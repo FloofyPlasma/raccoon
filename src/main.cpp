@@ -2,6 +2,7 @@
 #include "raccoon/ASTPrinter.hpp"
 #include "raccoon/IRGenerator.hpp"
 #include "raccoon/IRPrinter.hpp"
+#include "raccoon/LLVMBackend.hpp"
 #include "raccoon/Lexer.hpp"
 #include "raccoon/Parser.hpp"
 #include "raccoon/SemanticAnalyzer.hpp"
@@ -25,12 +26,16 @@ struct Option {
 bool dump_tokens_flag = false;
 bool dump_ast_flag = false;
 bool dump_ir_flag = false;
+bool dump_llvm_flag = false;
+bool emit_llvm_flag = false;
 std::string output_file = "a.out";
 
 Option constexpr options[] = {
     {"--dump-tokens", "", "Print tokens and exit", &dump_tokens_flag, nullptr},
     {"--dump-ast", "", "Print AST and exit", &dump_ast_flag, nullptr},
-  {"--dump-ir", "", "Print IR and exit", &dump_ir_flag, nullptr},
+    {"--dump-ir", "", "Print IR and exit", &dump_ir_flag, nullptr},
+    {"--dump-llvm", "", "Print LLVM IR and exit", &dump_llvm_flag, nullptr},
+    {"--emit-llvm", "", "Emit LLVM IR to .ll file", &emit_llvm_flag, nullptr},
     {"-o", "<file>", "Output file (default: a.out)", nullptr, &output_file},
 };
 
@@ -158,6 +163,12 @@ void print_semantic_errors(const std::vector<SemanticError> &errors) {
   }
 }
 
+void print_llvm_errors(const std::vector<LLVMError> &errors) {
+  for (const auto &error : errors) {
+    std::println(std::cerr, "error: {}", error.message);
+  }
+}
+
 int main(int argc, char *argv[]) {
   auto parse_result = parse_args(argc, argv);
 
@@ -231,7 +242,49 @@ int main(int argc, char *argv[]) {
       return 0;
     }
 
-    std::println("IR generation successful");
+    LLVMBackend backend;
+    auto llvm_result = backend.generate(*ir_module);
+
+    if (!llvm_result.has_value()) {
+      print_llvm_errors(llvm_result.error());
+      return 1;
+    }
+
+    if (emit_llvm_flag) {
+      std::string ll_file = output_file + ".ll";
+      if (!backend.emit_llvm_ir(ll_file)) {
+        print_llvm_errors(llvm_result.error());
+        return 1;
+      }
+      std::println("LLVM IR written to: {}", ll_file);
+    }
+
+    if (dump_llvm_flag) {
+      // Emit to temporary file and print it
+      std::string temp_ll = "/tmp/raccoon_dump.ll";
+      if (!backend.emit_llvm_ir(temp_ll)) {
+        print_llvm_errors(backend.get_errors());
+        return 1;
+      }
+      std::println("LLVM IR:");
+      std::println("--------");
+      std::string llvm_ir = read_file(temp_ll);
+      std::println("{}", llvm_ir);
+      std::filesystem::remove(temp_ll);
+      return 0;
+    }
+
+    std::string obj_file = output_file + ".o";
+    if (!backend.emit_object_file(obj_file)) {
+      print_llvm_errors(backend.get_errors());
+      return 1;
+    }
+
+    std::println("Object file generated: {}", obj_file);
+    std::println("\nTo create an executable, link with:");
+    std::println("  clang {} -o {}", obj_file, output_file);
+    std::println("  or");
+    std::println("  gcc {} -o {}", obj_file, output_file);
 
     return 0;
 
