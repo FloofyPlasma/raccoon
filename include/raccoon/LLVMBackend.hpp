@@ -8,7 +8,7 @@ class Module;
 class LLVMContext;
 } // namespace llvm
 
-class IRModule;
+struct IRModule;
 
 class LLVMBackend {
 public:

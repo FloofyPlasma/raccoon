@@ -11,6 +11,7 @@ add_executable(unit_tests
         unit/lexer/LexerTests.cpp
         unit/parser/ParserTests.cpp
         unit/semantic/SemanticTests.cpp
+        unit/ir/IRTests.cpp
 )
 
 target_link_libraries(unit_tests
@@ -18,6 +19,7 @@ target_link_libraries(unit_tests
         raccoon_lexer
         raccoon_parser
         raccoon_semantic
+        raccoon_ir
         Catch2::Catch2WithMain
 )
 

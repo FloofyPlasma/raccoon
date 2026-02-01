@@ -1,12 +1,16 @@
 #include "raccoon/AST.hpp"
 #include "raccoon/ASTPrinter.hpp"
+#include "raccoon/IRGenerator.hpp"
+#include "raccoon/IRPrinter.hpp"
 #include "raccoon/Lexer.hpp"
 #include "raccoon/Parser.hpp"
 #include "raccoon/SemanticAnalyzer.hpp"
 #include "raccoon/Token.hpp"
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <optional>
 #include <print>
 #include <sstream>
 
@@ -20,11 +24,13 @@ struct Option {
 
 bool dump_tokens_flag = false;
 bool dump_ast_flag = false;
+bool dump_ir_flag = false;
 std::string output_file = "a.out";
 
 Option constexpr options[] = {
     {"--dump-tokens", "", "Print tokens and exit", &dump_tokens_flag, nullptr},
     {"--dump-ast", "", "Print AST and exit", &dump_ast_flag, nullptr},
+  {"--dump-ir", "", "Print IR and exit", &dump_ir_flag, nullptr},
     {"-o", "<file>", "Output file (default: a.out)", nullptr, &output_file},
 };
 
@@ -211,7 +217,21 @@ int main(int argc, char *argv[]) {
       return 1;
     }
 
-    std::println("Semantic analysis successful");
+    std::filesystem::path input_path(input_file);
+    std::string module_name = input_path.stem().string();
+
+    IRGenerator ir_gen;
+    auto ir_module = ir_gen.generate(*ast, module_name);
+
+    if (dump_ir_flag) {
+      std::println("IR:");
+      std::println("---");
+      IRPrinter ir_printer;
+      ir_printer.print(*ir_module);
+      return 0;
+    }
+
+    std::println("IR generation successful");
 
     return 0;
 

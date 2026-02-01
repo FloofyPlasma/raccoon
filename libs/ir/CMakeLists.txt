@@ -1,5 +1,7 @@
 add_library(raccoon_ir STATIC
   src/IRGenerator.cpp
+        src/IR.cpp
+        src/IRPrinter.cpp
 )
 
 target_include_directories(raccoon_ir
