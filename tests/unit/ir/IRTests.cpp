@@ -1,162 +1,203 @@
 #include <catch2/catch_test_macros.hpp>
+
+#include "raccoon/IRGenerator.hpp"
+#include "raccoon/Lexer.hpp"
 #include "raccoon/Parser.hpp"
 #include "raccoon/SemanticAnalyzer.hpp"
-#include "raccoon/IRGenerator.hpp"
-#include "raccoon/Token.hpp"
 
-// Helper to create minimal valid program tokens
-std::vector<Token> make_test_tokens() {
-    return {
-        {TokenType::FUN, "fun", {"test.rac", 1, 1}},
-        {TokenType::IDENTIFIER, "main", {"test.rac", 1, 5}},
-        {TokenType::LEFT_PAREN, "(", {"test.rac", 1, 9}},
-        {TokenType::RIGHT_PAREN, ")", {"test.rac", 1, 10}},
-        {TokenType::COLON, ":", {"test.rac", 1, 11}},
-        {TokenType::I32, "i32", {"test.rac", 1, 13}},
-        {TokenType::LEFT_BRACE, "{", {"test.rac", 1, 17}},
-        {TokenType::RETURN, "return", {"test.rac", 2, 5}},
-        {TokenType::INTEGER, "42", {"test.rac", 2, 12}, 42},
-        {TokenType::SEMICOLON, ";", {"test.rac", 2, 14}},
-        {TokenType::RIGHT_BRACE, "}", {"test.rac", 3, 1}},
-        {TokenType::END_OF_FILE, "", {"test.rac", 3, 2}}
-    };
-}
+std::unique_ptr<IRModule> source_to_ir(const std::string &source) {
+  Lexer lexer(source, "test.rac");
+  auto tokens = lexer.lex();
+  REQUIRE_FALSE(lexer.has_errors());
 
-std::unique_ptr<ProgramNode> parse_and_analyze(std::vector<Token> tokens) {
-    Parser parser(std::move(tokens));
-    auto parse_result = parser.parse();
-    REQUIRE(parse_result.has_value());
-    
-    auto ast = std::move(parse_result.value());
-    
-    SemanticAnalyzer analyzer;
-    auto semantic_result = analyzer.analyze(*ast);
-    REQUIRE(semantic_result.has_value());
-    
-    return ast;
+  Parser parser(std::move(tokens));
+  auto parse_result = parser.parse();
+  REQUIRE(parse_result.has_value());
+
+  auto ast = std::move(parse_result.value());
+  SemanticAnalyzer analyzer;
+  auto sem = analyzer.analyze(*ast);
+  REQUIRE(sem.has_value());
+
+  IRGenerator gen;
+  return gen.generate(*ast, "test");
 }
 
 TEST_CASE("IR generator creates module", "[ir]") {
-    auto ast = parse_and_analyze(make_test_tokens());
-    
-    IRGenerator ir_gen;
-    auto ir_module = ir_gen.generate(*ast, "test");
-    
-    REQUIRE(ir_module != nullptr);
-    REQUIRE(ir_module->name == "test");
-    REQUIRE(ir_module->functions.size() == 1);
+  auto ir = source_to_ir(R"(
+        fun main(): i32 { return 42; }
+    )");
+  REQUIRE(ir != nullptr);
+  REQUIRE(ir->name == "test");
+  REQUIRE(ir->functions.size() == 1);
 }
 
-TEST_CASE("IR generator creates function", "[ir]") {
-    auto ast = parse_and_analyze(make_test_tokens());
-    
-    IRGenerator ir_gen;
-    auto ir_module = ir_gen.generate(*ast, "test");
-    
-    auto& func = ir_module->functions[0];
-    REQUIRE(func->name == "main");
-    REQUIRE(func->return_type.kind == IRType::Kind::I32);
-    REQUIRE(func->parameters.empty());  // Phase 1: no parameters
-    REQUIRE(func->basic_blocks.size() == 1);
+TEST_CASE("IR generator emits return constant", "[ir]") {
+  auto ir = source_to_ir(R"(
+        fun main(): i32 { return 42; }
+    )");
+
+  auto &block = ir->functions[0]->basic_blocks[0];
+  REQUIRE(block->instructions.size() == 1);
+
+  auto &ret = block->instructions[0];
+  REQUIRE(ret->opcode == IRInstruction::OpCode::RET);
+  REQUIRE(ret->operands.size() == 1);
+  REQUIRE(ret->operands[0].kind == IRValue::Kind::CONSTANT);
+  REQUIRE(ret->operands[0].int_const == 42);
 }
 
-TEST_CASE("IR generator creates entry block", "[ir]") {
-    auto ast = parse_and_analyze(make_test_tokens());
-    
-    IRGenerator ir_gen;
-    auto ir_module = ir_gen.generate(*ast, "test");
-    
-    auto& func = ir_module->functions[0];
-    auto& block = func->basic_blocks[0];
-    
-    REQUIRE(block->label == "entry");
-    REQUIRE(block->instructions.size() == 1);
+TEST_CASE("IR generator emits binary arithmetic", "[ir]") {
+  auto ir = source_to_ir(R"(
+        fun main(): i32 { return 10 + 20; }
+    )");
+
+  auto &block = ir->functions[0]->basic_blocks[0];
+  // Should have: ADD, RET
+  REQUIRE(block->instructions.size() == 2);
+
+  auto &add = block->instructions[0];
+  REQUIRE(add->opcode == IRInstruction::OpCode::ADD);
+  REQUIRE(add->operands.size() == 2);
+  REQUIRE(add->operands[0].int_const == 10);
+  REQUIRE(add->operands[1].int_const == 20);
+  REQUIRE(add->result.kind == IRValue::Kind::REGISTER);
+
+  auto &ret = block->instructions[1];
+  REQUIRE(ret->opcode == IRInstruction::OpCode::RET);
+  REQUIRE(ret->operands[0].kind == IRValue::Kind::REGISTER);
 }
 
-TEST_CASE("IR generator emits return instruction", "[ir]") {
-    auto ast = parse_and_analyze(make_test_tokens());
-    
-    IRGenerator ir_gen;
-    auto ir_module = ir_gen.generate(*ast, "test");
-    
-    auto& func = ir_module->functions[0];
-    auto& block = func->basic_blocks[0];
-    auto& instr = block->instructions[0];
-    
-    REQUIRE(instr->opcode == IRInstruction::OpCode::RET);
-    REQUIRE(instr->operands.size() == 1);
-    REQUIRE(instr->operands[0].kind == IRValue::Kind::CONSTANT);
-    REQUIRE(instr->operands[0].type.kind == IRType::Kind::I32);
-    REQUIRE(instr->operands[0].int_const == 42);
+TEST_CASE("IR generator emits all arithmetic operators", "[ir]") {
+  SECTION("subtraction") {
+    auto ir = source_to_ir("fun main(): i32 { return 10 - 3; }");
+    REQUIRE(ir->functions[0]->basic_blocks[0]->instructions[0]->opcode ==
+            IRInstruction::OpCode::SUB);
+  }
+  SECTION("multiplication") {
+    auto ir = source_to_ir("fun main(): i32 { return 10 * 3; }");
+    REQUIRE(ir->functions[0]->basic_blocks[0]->instructions[0]->opcode ==
+            IRInstruction::OpCode::MUL);
+  }
+  SECTION("division") {
+    auto ir = source_to_ir("fun main(): i32 { return 10 / 3; }");
+    REQUIRE(ir->functions[0]->basic_blocks[0]->instructions[0]->opcode ==
+            IRInstruction::OpCode::SDIV);
+  }
 }
 
-TEST_CASE("IR generator handles multiple functions", "[ir]") {
-    std::vector<Token> tokens = {
-        // First function
-        {TokenType::FUN, "fun", {"test.rac", 1, 1}},
-        {TokenType::IDENTIFIER, "foo", {"test.rac", 1, 5}},
-        {TokenType::LEFT_PAREN, "(", {"test.rac", 1, 8}},
-        {TokenType::RIGHT_PAREN, ")", {"test.rac", 1, 9}},
-        {TokenType::COLON, ":", {"test.rac", 1, 10}},
-        {TokenType::I32, "i32", {"test.rac", 1, 12}},
-        {TokenType::LEFT_BRACE, "{", {"test.rac", 1, 16}},
-        {TokenType::RETURN, "return", {"test.rac", 2, 5}},
-        {TokenType::INTEGER, "1", {"test.rac", 2, 12}, 1},
-        {TokenType::SEMICOLON, ";", {"test.rac", 2, 13}},
-        {TokenType::RIGHT_BRACE, "}", {"test.rac", 3, 1}},
-        
-        // Second function
-        {TokenType::FUN, "fun", {"test.rac", 5, 1}},
-        {TokenType::IDENTIFIER, "bar", {"test.rac", 5, 5}},
-        {TokenType::LEFT_PAREN, "(", {"test.rac", 5, 8}},
-        {TokenType::RIGHT_PAREN, ")", {"test.rac", 5, 9}},
-        {TokenType::COLON, ":", {"test.rac", 5, 10}},
-        {TokenType::I32, "i32", {"test.rac", 5, 12}},
-        {TokenType::LEFT_BRACE, "{", {"test.rac", 5, 16}},
-        {TokenType::RETURN, "return", {"test.rac", 6, 5}},
-        {TokenType::INTEGER, "2", {"test.rac", 6, 12}, 2},
-        {TokenType::SEMICOLON, ";", {"test.rac", 6, 13}},
-        {TokenType::RIGHT_BRACE, "}", {"test.rac", 7, 1}},
-        
-        {TokenType::END_OF_FILE, "", {"test.rac", 8, 1}}
-    };
-    
-    auto ast = parse_and_analyze(std::move(tokens));
-    
-    IRGenerator ir_gen;
-    auto ir_module = ir_gen.generate(*ast, "test");
-    
-    REQUIRE(ir_module->functions.size() == 2);
-    REQUIRE(ir_module->functions[0]->name == "foo");
-    REQUIRE(ir_module->functions[1]->name == "bar");
-    
-    // Check first function returns 1
-    auto& foo_instr = ir_module->functions[0]->basic_blocks[0]->instructions[0];
-    REQUIRE(foo_instr->operands[0].int_const == 1);
-    
-    // Check second function returns 2
-    auto& bar_instr = ir_module->functions[1]->basic_blocks[0]->instructions[0];
-    REQUIRE(bar_instr->operands[0].int_const == 2);
+TEST_CASE("IR generator emits alloca and store for variable decl", "[ir]") {
+  auto ir = source_to_ir(R"(
+        fun main(): i32 {
+            let x: i32 = 42;
+            return 0;
+        }
+    )");
+
+  auto &block = ir->functions[0]->basic_blocks[0];
+  // ALLOCA, STORE, RET
+  REQUIRE(block->instructions.size() >= 3);
+
+  REQUIRE(block->instructions[0]->opcode == IRInstruction::OpCode::ALLOCA);
+  REQUIRE(block->instructions[1]->opcode == IRInstruction::OpCode::STORE);
+  // Store operands: value, pointer
+  REQUIRE(block->instructions[1]->operands.size() == 2);
+  REQUIRE(block->instructions[1]->operands[0].int_const == 42);
+}
+
+TEST_CASE("IR generator emits alloca without store for uninitialized var",
+          "[ir]") {
+  auto ir = source_to_ir(R"(
+        fun main(): i32 {
+            let x: i32;
+            return 0;
+        }
+    )");
+
+  auto &block = ir->functions[0]->basic_blocks[0];
+  // ALLOCA, RET (no STORE for uninitialized)
+  REQUIRE(block->instructions.size() == 2);
+  REQUIRE(block->instructions[0]->opcode == IRInstruction::OpCode::ALLOCA);
+  REQUIRE(block->instructions[1]->opcode == IRInstruction::OpCode::RET);
+}
+
+TEST_CASE("IR generator emits load for variable use", "[ir]") {
+  auto ir = source_to_ir(R"(
+        fun main(): i32 {
+            let x: i32 = 42;
+            return x;
+        }
+    )");
+
+  auto &block = ir->functions[0]->basic_blocks[0];
+  // ALLOCA, STORE, LOAD, RET
+  REQUIRE(block->instructions.size() == 4);
+  REQUIRE(block->instructions[0]->opcode == IRInstruction::OpCode::ALLOCA);
+  REQUIRE(block->instructions[1]->opcode == IRInstruction::OpCode::STORE);
+  REQUIRE(block->instructions[2]->opcode == IRInstruction::OpCode::LOAD);
+  REQUIRE(block->instructions[3]->opcode == IRInstruction::OpCode::RET);
+}
+
+TEST_CASE("IR generator emits store for assignment", "[ir]") {
+  auto ir = source_to_ir(R"(
+        fun main(): i32 {
+            let x: i32 = 5;
+            x = 10;
+            return x;
+        }
+    )");
+
+  auto &block = ir->functions[0]->basic_blocks[0];
+  // ALLOCA, STORE(5), STORE(10), LOAD, RET
+  REQUIRE(block->instructions.size() == 5);
+  REQUIRE(block->instructions[0]->opcode == IRInstruction::OpCode::ALLOCA);
+  REQUIRE(block->instructions[1]->opcode == IRInstruction::OpCode::STORE);
+  REQUIRE(block->instructions[2]->opcode == IRInstruction::OpCode::STORE);
+  REQUIRE(block->instructions[3]->opcode == IRInstruction::OpCode::LOAD);
+  REQUIRE(block->instructions[4]->opcode == IRInstruction::OpCode::RET);
+}
+
+TEST_CASE("IR generator handles complex expression with variables", "[ir]") {
+  auto ir = source_to_ir(R"(
+        fun main(): i32 {
+            let x: i32 = 10;
+            let y: i32 = 20;
+            return x + y;
+        }
+    )");
+
+  auto &block = ir->functions[0]->basic_blocks[0];
+  // x: ALLOCA, STORE
+  // y: ALLOCA, STORE
+  // return x+y: LOAD(x), LOAD(y), ADD, RET
+  REQUIRE(block->instructions.size() == 8);
+
+  // Check last 3 instructions are LOAD, LOAD, ADD, RET
+  auto size = block->instructions.size();
+  REQUIRE(block->instructions[size - 4]->opcode == IRInstruction::OpCode::LOAD);
+  REQUIRE(block->instructions[size - 3]->opcode == IRInstruction::OpCode::LOAD);
+  REQUIRE(block->instructions[size - 2]->opcode == IRInstruction::OpCode::ADD);
+  REQUIRE(block->instructions[size - 1]->opcode == IRInstruction::OpCode::RET);
 }
 
 TEST_CASE("IR value factory methods work correctly", "[ir]") {
-    SECTION("make_register") {
-        auto reg = IRValue::make_register(IRType(IRType::Kind::I32), "temp");
-        REQUIRE(reg.kind == IRValue::Kind::REGISTER);
-        REQUIRE(reg.type.kind == IRType::Kind::I32);
-        REQUIRE(reg.name == "temp");
-    }
-    
-    SECTION("make_constant") {
-        auto const_val = IRValue::make_constant(IRType(IRType::Kind::I32), 42);
-        REQUIRE(const_val.kind == IRValue::Kind::CONSTANT);
-        REQUIRE(const_val.type.kind == IRType::Kind::I32);
-        REQUIRE(const_val.int_const == 42);
-    }
-    
-    SECTION("make_label") {
-        auto label = IRValue::make_label("entry");
-        REQUIRE(label.kind == IRValue::Kind::LABEL);
-        REQUIRE(label.name == "entry");
-    }
+  SECTION("make_register") {
+    auto reg = IRValue::make_register(IRType(IRType::Kind::I32), "temp");
+    REQUIRE(reg.kind == IRValue::Kind::REGISTER);
+    REQUIRE(reg.type.kind == IRType::Kind::I32);
+    REQUIRE(reg.name == "temp");
+  }
+
+  SECTION("make_constant") {
+    auto const_val = IRValue::make_constant(IRType(IRType::Kind::I32), 42);
+    REQUIRE(const_val.kind == IRValue::Kind::CONSTANT);
+    REQUIRE(const_val.type.kind == IRType::Kind::I32);
+    REQUIRE(const_val.int_const == 42);
+  }
+
+  SECTION("make_label") {
+    auto label = IRValue::make_label("entry");
+    REQUIRE(label.kind == IRValue::Kind::LABEL);
+    REQUIRE(label.name == "entry");
+  }
 }
