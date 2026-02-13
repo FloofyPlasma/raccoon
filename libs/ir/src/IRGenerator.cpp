@@ -1,4 +1,5 @@
 #include "raccoon/IRGenerator.hpp"
+#include <cassert>
 #include <print>
 
 IRGenerator::IRGenerator()
@@ -62,6 +63,100 @@ void IRGenerator::visit(ReturnStmt &node) {
 
 void IRGenerator::visit(IntegerLiteral &node) {
   last_value = IRValue::make_constant(IRType(IRType::Kind::I32), node.value);
+}
+
+void IRGenerator::visit(BinaryExpr &node) {
+  node.left->accept(*this);
+  IRValue left_val = last_value;
+
+  node.right->accept(*this);
+  IRValue right_val = last_value;
+
+  IRInstruction::OpCode opcode;
+  switch (node.op) {
+  case TokenType::PLUS:
+    opcode = IRInstruction::OpCode::ADD;
+    break;
+  case TokenType::MINUS:
+    opcode = IRInstruction::OpCode::SUB;
+    break;
+  case TokenType::STAR:
+    opcode = IRInstruction::OpCode::MUL;
+    break;
+  case TokenType::SLASH:
+    opcode = IRInstruction::OpCode::SDIV;
+    break;
+  default:
+    assert(false && "Unknown binary operator in IR generation");
+    return;
+  }
+
+  auto instr = std::make_unique<IRInstruction>(opcode);
+  IRValue result = new_register(left_val.type);
+  instr->result = result;
+  instr->operands.push_back(left_val);
+  instr->operands.push_back(right_val);
+
+  emit(std::move(instr));
+  last_value = result;
+}
+
+void IRGenerator::visit(IdentifierExpr &node) {
+  auto it = variables.find(node.name);
+  assert(it != variables.end() &&
+         "Undefined variable should have been caught in semantic analysis");
+
+  IRValue ptr = it->second;
+
+  auto load_instr =
+      std::make_unique<IRInstruction>(IRInstruction::OpCode::LOAD);
+
+  IRType value_type = ptr.type;
+  IRValue result = new_register(value_type);
+  load_instr->result = result;
+  load_instr->operands.push_back(ptr);
+
+  emit(std::move(load_instr));
+  last_value = result;
+}
+
+void IRGenerator::visit(VarDeclStmt &node) {
+  IRType var_type = convert_type(node.type.get());
+
+  auto alloca_instr = std::make_unique<IRInstruction>(IRInstruction::OpCode::ALLOCA);
+  IRValue ptr = new_register(var_type);
+  alloca_instr->result = ptr;
+
+  emit(std::move(alloca_instr));
+
+  variables.emplace(node.name, ptr);
+
+  if (node.initializer) {
+    node.initializer->accept(*this);
+
+    auto store_instr = std::make_unique<IRInstruction>(IRInstruction::OpCode::STORE);
+    store_instr->operands.push_back(last_value);
+    store_instr->operands.push_back(ptr);
+
+    emit(std::move(store_instr));
+  }
+}
+
+void IRGenerator::visit(AssignmentStmt &node) {
+  auto it = variables.find(node.name);
+  assert(it != variables.end() && "Undefined variable should have been caught in semantic analysis");
+
+  node.value->accept(*this);
+
+  auto store_instr = std::make_unique<IRInstruction>(IRInstruction::OpCode::STORE);
+  store_instr->operands.push_back(last_value);
+  store_instr->operands.push_back(it->second);
+
+  emit(std::move(store_instr));
+}
+
+void IRGenerator::visit(ExpressionStmt &node) {
+  node.expression->accept(*this);
 }
 
 IRValue IRGenerator::new_register(IRType type) {

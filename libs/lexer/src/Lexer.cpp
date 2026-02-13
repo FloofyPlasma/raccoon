@@ -9,12 +9,24 @@ std::string token_type_to_string(TokenType type) {
     return "FUN";
   case TokenType::RETURN:
     return "RETURN";
+  case TokenType::LET:
+    return "LET";
   case TokenType::I32:
     return "I32";
   case TokenType::IDENTIFIER:
     return "IDENTIFIER";
   case TokenType::INTEGER:
     return "INTEGER";
+  case TokenType::PLUS:
+    return "PLUS";
+  case TokenType::MINUS:
+    return "MINUS";
+  case TokenType::STAR:
+    return "STAR";
+  case TokenType::SLASH:
+    return "SLASH";
+  case TokenType::EQUAL:
+    return "EQUAL";
   case TokenType::LEFT_PAREN:
     return "LEFT_PAREN";
   case TokenType::RIGHT_PAREN:
@@ -62,9 +74,7 @@ std::vector<Token> Lexer::lex() {
   return tokens;
 }
 
-bool Lexer::is_at_end() const {
-  return position >= source.length();
-}
+bool Lexer::is_at_end() const { return position >= source.length(); }
 
 char Lexer::peek() const {
   if (is_at_end()) {
@@ -118,23 +128,38 @@ Token Lexer::scan_token() {
 
   switch (c) {
   case '(':
-    return Token{TokenType::LEFT_PAREN,
-                std::string_view(&source[start], 1), loc, std::nullopt};
+    return Token{TokenType::LEFT_PAREN, std::string_view(&source[start], 1),
+                 loc, std::nullopt};
   case ')':
-    return Token{TokenType::RIGHT_PAREN,
-                std::string_view(&source[start], 1), loc, std::nullopt};
+    return Token{TokenType::RIGHT_PAREN, std::string_view(&source[start], 1),
+                 loc, std::nullopt};
   case '{':
-    return Token{TokenType::LEFT_BRACE,
-                std::string_view(&source[start], 1), loc, std::nullopt};
+    return Token{TokenType::LEFT_BRACE, std::string_view(&source[start], 1),
+                 loc, std::nullopt};
   case '}':
-    return Token{TokenType::RIGHT_BRACE,
-                std::string_view(&source[start], 1), loc, std::nullopt};
+    return Token{TokenType::RIGHT_BRACE, std::string_view(&source[start], 1),
+                 loc, std::nullopt};
   case ':':
-    return Token{TokenType::COLON,
-                std::string_view(&source[start], 1), loc, std::nullopt};
+    return Token{TokenType::COLON, std::string_view(&source[start], 1), loc,
+                 std::nullopt};
   case ';':
-    return Token{TokenType::SEMICOLON,
-                std::string_view(&source[start], 1), loc, std::nullopt};
+    return Token{TokenType::SEMICOLON, std::string_view(&source[start], 1), loc,
+                 std::nullopt};
+  case '+':
+    return Token{TokenType::PLUS, std::string_view(&source[start], 1), loc,
+                 std::nullopt};
+  case '-':
+    return Token{TokenType::MINUS, std::string_view(&source[start], 1), loc,
+                 std::nullopt};
+  case '*':
+    return Token{TokenType::STAR, std::string_view(&source[start], 1), loc,
+                 std::nullopt};
+  case '/':
+    return Token{TokenType::SLASH, std::string_view(&source[start], 1), loc,
+                 std::nullopt};
+  case '=':
+    return Token{TokenType::EQUAL, std::string_view(&source[start], 1), loc,
+                 std::nullopt};
 
   default:
     if (is_alpha(c) || c == '_') {
@@ -150,8 +175,7 @@ Token Lexer::scan_token() {
     }
 
     error(std::string("Unexpected character: '") + c + "'");
-    return Token{TokenType::END_OF_FILE,
-                std::string_view{}, loc, std::nullopt};
+    return Token{TokenType::END_OF_FILE, std::string_view{}, loc, std::nullopt};
   }
 }
 
@@ -168,10 +192,10 @@ Token Lexer::scan_identifier_or_keyword() {
 
   // Check for keywords
   static const std::unordered_map<std::string_view, TokenType> keywords = {
-    {"fun", TokenType::FUN},
-    {"return", TokenType::RETURN},
-    {"i32", TokenType::I32}
-  };
+      {"fun", TokenType::FUN},
+      {"return", TokenType::RETURN},
+      {"let", TokenType::LET},
+      {"i32", TokenType::I32}};
 
   auto it = keywords.find(text);
   if (it != keywords.end()) {
@@ -212,10 +236,6 @@ bool Lexer::is_alpha(char c) const {
   return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
 }
 
-bool Lexer::is_digit(char c) const {
-  return c >= '0' && c <= '9';
-}
+bool Lexer::is_digit(char c) const { return c >= '0' && c <= '9'; }
 
-bool Lexer::is_alnum(char c) const {
-  return is_alpha(c) || is_digit(c);
-}
+bool Lexer::is_alnum(char c) const { return is_alpha(c) || is_digit(c); }

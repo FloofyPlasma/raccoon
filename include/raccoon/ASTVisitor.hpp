@@ -12,6 +12,15 @@ public:
     (void)node;
   }
 
+  void visit(BinaryExpr &node) override {
+    node.left->accept(*this);
+    node.right->accept(*this);
+  }
+
+  void visit(IdentifierExpr& node) override {
+    (void)node;
+  }
+
   // Statements
   void visit(BlockStmt& node) override {
     for (auto& stmt : node.statements) {
@@ -23,6 +32,20 @@ public:
     if (node.value) {
       node.value->accept(*this);
     }
+  }
+
+  void visit(VarDeclStmt &node) override {
+    if (node.initializer) {
+      node.initializer->accept(*this);
+    }
+  }
+
+  void visit(AssignmentStmt &node) override {
+    node.value->accept(*this);
+  }
+
+  void visit(ExpressionStmt &node) override {
+    node.expression->accept(*this);
   }
 
   // Declarations

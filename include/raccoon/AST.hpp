@@ -2,8 +2,8 @@
 
 #include "raccoon/Token.hpp"
 #include <memory>
-#include <vector>
 #include <string>
+#include <vector>
 
 class Type;
 class Expression;
@@ -33,23 +33,20 @@ public:
 
   Kind kind;
 
-  explicit Type(Kind k, SourceLocation loc = {})
-        : ASTNode(loc), kind(k) {}
+  explicit Type(Kind k, SourceLocation loc = {}) : ASTNode(loc), kind(k) {}
 };
 
 #pragma mark Expressions
 
 class Expression : public ASTNode {
 public:
-  enum class Kind {
-    INTEGER_LITERAL,
-  };
+  enum class Kind { INTEGER_LITERAL, BINARY_EXPR, IDENTIFIER };
 
   Kind kind;
 
   std::unique_ptr<Type> resolved_type;
 
-  virtual void accept(ASTVisitor& visitor) = 0;
+  virtual void accept(ASTVisitor &visitor) = 0;
 
 protected:
   Expression(Kind k, SourceLocation loc) : ASTNode(loc), kind(k) {}
@@ -59,23 +56,45 @@ class IntegerLiteral : public Expression {
 public:
   int64_t value;
 
-  IntegerLiteral(int64_t val, SourceLocation loc) : Expression(Kind::INTEGER_LITERAL, loc), value(val) {}
+  IntegerLiteral(int64_t val, SourceLocation loc)
+      : Expression(Kind::INTEGER_LITERAL, loc), value(val) {}
 
-  void accept(ASTVisitor& visitor) override;
+  void accept(ASTVisitor &visitor) override;
+};
+
+class BinaryExpr : public Expression {
+public:
+  std::unique_ptr<Expression> left;
+  TokenType op;
+  std::unique_ptr<Expression> right;
+
+  BinaryExpr(std::unique_ptr<Expression> l, TokenType o,
+             std::unique_ptr<Expression> r, SourceLocation loc)
+      : Expression(Kind::BINARY_EXPR, loc), left(std::move(l)), op(o),
+        right(std::move(r)) {}
+
+  void accept(ASTVisitor &visitor) override;
+};
+
+class IdentifierExpr : public Expression {
+public:
+  std::string name;
+
+  IdentifierExpr(std::string n, SourceLocation loc)
+      : Expression(Kind::IDENTIFIER, loc), name(std::move(n)) {}
+
+  void accept(ASTVisitor &visitor) override;
 };
 
 #pragma mark Statements
 
 class Statement : public ASTNode {
 public:
-  enum class Kind {
-    BLOCK,
-    RETURN
-  };
+  enum class Kind { BLOCK, RETURN, VAR_DECL, ASSIGNMENT, EXPRESSION };
 
   Kind kind;
 
-  virtual void accept(ASTVisitor& visitor) = 0;
+  virtual void accept(ASTVisitor &visitor) = 0;
 
 protected:
   Statement(Kind k, SourceLocation loc) : ASTNode(loc), kind(k) {}
@@ -85,10 +104,9 @@ class BlockStmt : public Statement {
 public:
   std::vector<std::unique_ptr<Statement>> statements;
 
-  explicit BlockStmt(SourceLocation loc)
-      : Statement(Kind::BLOCK, loc) {}
+  explicit BlockStmt(SourceLocation loc) : Statement(Kind::BLOCK, loc) {}
 
-  void accept(ASTVisitor& visitor) override;
+  void accept(ASTVisitor &visitor) override;
 };
 
 class ReturnStmt : public Statement {
@@ -98,7 +116,45 @@ public:
   ReturnStmt(std::unique_ptr<Expression> val, SourceLocation loc)
       : Statement(Kind::RETURN, loc), value(std::move(val)) {}
 
-  void accept(ASTVisitor& visitor) override;
+  void accept(ASTVisitor &visitor) override;
+};
+
+class VarDeclStmt : public Statement {
+public:
+  std::string name;
+  std::unique_ptr<Type> type;
+  std::unique_ptr<Expression>
+      initializer; // may be nullptr for uninitialized data
+
+  VarDeclStmt(std::string name, std::unique_ptr<Type> type,
+              std::unique_ptr<Expression> init, SourceLocation loc)
+      : Statement(Kind::VAR_DECL, loc), name(std::move(name)),
+        type(std::move(type)), initializer(std::move(init)) {}
+
+  void accept(ASTVisitor &visitor) override;
+};
+
+class AssignmentStmt : public Statement {
+public:
+  std::string name;
+  std::unique_ptr<Expression> value;
+
+  AssignmentStmt(std::string name, std::unique_ptr<Expression> val,
+                 SourceLocation loc)
+      : Statement(Kind::ASSIGNMENT, loc), name(std::move(name)),
+        value(std::move(val)) {}
+
+  void accept(ASTVisitor &visitor) override;
+};
+
+class ExpressionStmt : public Statement {
+public:
+  std::unique_ptr<Expression> expression;
+
+  ExpressionStmt(std::unique_ptr<Expression> expr, SourceLocation loc)
+      : Statement(Kind::EXPRESSION, loc), expression(std::move(expr)) {}
+
+  void accept(ASTVisitor &visitor) override;
 };
 
 #pragma mark Declarations
@@ -116,9 +172,10 @@ public:
   std::unique_ptr<Type> return_type;
   std::unique_ptr<BlockStmt> body;
 
-  FunctionDecl(std::string name, SourceLocation loc) : ASTNode(loc), name(std::move(name)) {}
+  FunctionDecl(std::string name, SourceLocation loc)
+      : ASTNode(loc), name(std::move(name)) {}
 
-  void accept(ASTVisitor& visitor);
+  void accept(ASTVisitor &visitor);
 };
 
 class ProgramNode : public ASTNode {
@@ -127,7 +184,7 @@ public:
 
   ProgramNode() = default;
 
-  void accept(ASTVisitor& visitor);
+  void accept(ASTVisitor &visitor);
 };
 
 #pragma mark Visitor Interface
@@ -137,13 +194,18 @@ public:
   virtual ~ASTVisitor() = default;
 
   // Expressions
-  virtual void visit(IntegerLiteral& node) = 0;
+  virtual void visit(IntegerLiteral &node) = 0;
+  virtual void visit(BinaryExpr &node) = 0;
+  virtual void visit(IdentifierExpr &node) = 0;
 
   // Statements
-  virtual void visit(BlockStmt& node) = 0;
-  virtual void visit(ReturnStmt& node) = 0;
+  virtual void visit(BlockStmt &node) = 0;
+  virtual void visit(ReturnStmt &node) = 0;
+  virtual void visit(VarDeclStmt &node) = 0;
+  virtual void visit(AssignmentStmt &node) = 0;
+  virtual void visit(ExpressionStmt &node) = 0;
 
   // Declarations
-  virtual void visit(FunctionDecl& node) = 0;
-  virtual void visit(ProgramNode& node) = 0;
+  virtual void visit(FunctionDecl &node) = 0;
+  virtual void visit(ProgramNode &node) = 0;
 };

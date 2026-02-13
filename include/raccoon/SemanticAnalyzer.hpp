@@ -20,9 +20,14 @@ public:
 
   void visit(ProgramNode& node) override;
   void visit(FunctionDecl& node) override;
+  void visit(BlockStmt& node) override;
   void visit(ReturnStmt& node) override;
   void visit(IntegerLiteral& node) override;
-
+  void visit(BinaryExpr& node) override;
+  void visit(IdentifierExpr& node) override;
+  void visit(VarDeclStmt& node) override;
+  void visit(AssignmentStmt& node) override;
+  void visit(ExpressionStmt& node) override;
 private:
   std::unique_ptr<SymbolTable> global_scope;
   SymbolTable* current_scope;
@@ -33,8 +38,14 @@ private:
 
   void error(SourceLocation loc, const std::string&message);
 
+  void push_scope();
+  void pop_scope();
+
   Type* get_expression_type(Expression& expr);
   bool types_equal(const Type* a, const Type* b);
 
   bool verify_all_paths_return(BlockStmt& block, Type* return_type);
+
+  std::vector<std::unique_ptr<SymbolTable>> scope_storage;
+  std::vector<SymbolTable*> scope_stack;
 };

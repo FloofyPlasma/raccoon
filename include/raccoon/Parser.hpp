@@ -39,11 +39,16 @@ private:
 
   bool expect(TokenType type, const std::string& message);
 
+  // Precedence
+  static int get_precedence(TokenType type);
+  static bool is_binary_operator(TokenType type);
+
   // Parsing functions
   std::unique_ptr<FunctionDecl> parse_function();
   std::unique_ptr<Type> parse_type();
   std::unique_ptr<BlockStmt> parse_block();
   std::unique_ptr<Statement> parse_statement();
-  std::unique_ptr<Expression> parse_expression();
+  std::unique_ptr<Statement> parse_var_decl();
+  std::unique_ptr<Expression> parse_expression(int min_precedence = 0);
   std::unique_ptr<Expression> parse_primary();
 };

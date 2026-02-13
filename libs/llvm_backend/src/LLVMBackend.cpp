@@ -73,7 +73,6 @@ LLVMBackend::generate(const IRModule &ir_module) {
 }
 
 void LLVMBackend::generate_function(const IRFunction &func) {
-  // TODO: Unsafe
   llvm::Function *llvm_func =
       static_cast<llvm::Function *>(value_map[func.name]);
 
@@ -82,6 +81,15 @@ void LLVMBackend::generate_function(const IRFunction &func) {
                       func.name));
     return;
   }
+
+  std::unordered_map<std::string, llvm::Value *> saved_funcs;
+  for (const auto &f : value_map) {
+    if (auto *fn = llvm::dyn_cast<llvm::Function>(f.second)) {
+      saved_funcs[f.first] = fn;
+    }
+  }
+  value_map = saved_funcs;
+  label_map.clear();
 
   for (const auto &block : func.basic_blocks) {
     llvm::BasicBlock *llvm_block =
@@ -116,6 +124,95 @@ void LLVMBackend::generate_basic_block(const IRBasicBlock &block) {
 
 void LLVMBackend::generate_instruction(const IRInstruction &instr) {
   switch (instr.opcode) {
+
+  case IRInstruction::OpCode::ALLOCA: {
+    llvm::Type *alloc_type = convert_type(instr.result.type);
+    if (!alloc_type) {
+      return;
+    }
+
+    llvm::AllocaInst *alloca =
+        builder.CreateAlloca(alloc_type, nullptr, instr.result.name);
+
+    value_map[instr.result.name] = alloca;
+    break;
+  }
+
+  case IRInstruction::OpCode::LOAD: {
+    llvm::Value *ptr = get_value(instr.operands[0]);
+    if (!ptr) {
+      return;
+    }
+
+    llvm::Type *load_type = convert_type(instr.result.type);
+    if (!load_type) {
+      return;
+    }
+
+    llvm::Value *loaded = builder.CreateLoad(load_type, ptr, instr.result.name);
+    value_map[instr.result.name] = loaded;
+    break;
+  }
+
+  case IRInstruction::OpCode::STORE: {
+    llvm::Value *val = get_value(instr.operands[0]);
+    llvm::Value *ptr = get_value(instr.operands[1]);
+    if (!val || !ptr) {
+      return;
+    }
+
+    builder.CreateStore(val, ptr);
+    break;
+  }
+
+  case IRInstruction::OpCode::ADD: {
+    llvm::Value *left = get_value(instr.operands[0]);
+    llvm::Value *right = get_value(instr.operands[1]);
+    if (!left || !right) {
+      return;
+    }
+
+    llvm::Value *result = builder.CreateAdd(left, right, instr.result.name);
+    value_map[instr.result.name] = result;
+    break;
+  }
+
+  case IRInstruction::OpCode::SUB: {
+    llvm::Value *left = get_value(instr.operands[0]);
+    llvm::Value *right = get_value(instr.operands[1]);
+    if (!left || !right) {
+      return;
+    }
+
+    llvm::Value *result = builder.CreateSub(left, right, instr.result.name);
+    value_map[instr.result.name] = result;
+    break;
+  }
+
+  case IRInstruction::OpCode::MUL: {
+    llvm::Value *left = get_value(instr.operands[0]);
+    llvm::Value *right = get_value(instr.operands[1]);
+    if (!left || !right) {
+      return;
+    }
+
+    llvm::Value *result = builder.CreateMul(left, right, instr.result.name);
+    value_map[instr.result.name] = result;
+    break;
+  }
+
+  case IRInstruction::OpCode::SDIV: {
+    llvm::Value *left = get_value(instr.operands[0]);
+    llvm::Value *right = get_value(instr.operands[1]);
+    if (!left || !right) {
+      return;
+    }
+
+    llvm::Value *result = builder.CreateSDiv(left, right, instr.result.name);
+    value_map[instr.result.name] = result;
+    break;
+  }
+
   case IRInstruction::OpCode::RET: {
     if (instr.operands.empty()) {
       builder.CreateRetVoid();
@@ -126,6 +223,37 @@ void LLVMBackend::generate_instruction(const IRInstruction &instr) {
       }
       builder.CreateRet(ret_val);
     }
+    break;
+  }
+
+  case IRInstruction::OpCode::BR: {
+    // Unconditional branch
+    if (instr.operands.empty()) {
+      error("BR instruction missing target lable");
+      return;
+    }
+    llvm::BasicBlock *target = label_map[instr.operands[0].name];
+    if (!target) {
+      error(std::format("Unknown branch target: {}", instr.operands[0].name));
+      return;
+    }
+    builder.CreateBr(target);
+    break;
+  }
+
+  case IRInstruction::OpCode::BR_COND: {
+    if (instr.operands.size() < 3) {
+      error("BR_COND instruction missing operands");
+      return;
+    }
+    llvm::Value *cond = get_value(instr.operands[0]);
+    llvm::BasicBlock *true_block = label_map[instr.operands[1].name];
+    llvm::BasicBlock *false_block = label_map[instr.operands[2].name];
+    if (!cond || !true_block || !false_block) {
+      error("BR_COND: invalid operands");
+      return;
+    }
+    builder.CreateCondBr(cond, true_block, false_block);
     break;
   }
 

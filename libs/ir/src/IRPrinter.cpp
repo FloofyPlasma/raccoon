@@ -35,6 +35,35 @@ void IRPrinter::print_basic_block(const IRBasicBlock &block) {
 
 void IRPrinter::print_instruction(const IRInstruction &instr) {
   switch (instr.opcode) {
+
+  case IRInstruction::OpCode::ALLOCA:
+    std::print("{} = alloca {}", instr.result.to_string(),
+               instr.result.type.to_string());
+    break;
+
+  case IRInstruction::OpCode::LOAD:
+    std::print("{} = load {}, {}* {}", instr.result.to_string(),
+               instr.result.type.to_string(),
+               instr.operands[0].type.to_string(),
+               instr.operands[0].to_string());
+    break;
+
+  case IRInstruction::OpCode::STORE:
+    std::print("store {} {}, {}* {}", instr.operands[0].type.to_string(),
+               instr.operands[0].to_string(),
+               instr.operands[1].type.to_string(),
+               instr.operands[1].to_string());
+    break;
+
+  case IRInstruction::OpCode::ADD:
+  case IRInstruction::OpCode::SUB:
+  case IRInstruction::OpCode::MUL:
+  case IRInstruction::OpCode::SDIV:
+    std::print("{} = {} {} {}, {}", instr.result.to_string(),
+               instr.opcode_to_string(), instr.result.type.to_string(),
+               instr.operands[0].to_string(), instr.operands[1].to_string());
+    break;
+
   case IRInstruction::OpCode::RET:
     std::print("ret");
     if (!instr.operands.empty()) {
@@ -43,16 +72,15 @@ void IRPrinter::print_instruction(const IRInstruction &instr) {
     }
     break;
 
-  case IRInstruction::OpCode::ADD:
-  case IRInstruction::OpCode::SUB:
-  case IRInstruction::OpCode::MUL:
-  case IRInstruction::OpCode::SDIV:
-  case IRInstruction::OpCode::ALLOCA:
-  case IRInstruction::OpCode::LOAD:
-  case IRInstruction::OpCode::STORE:
   case IRInstruction::OpCode::BR:
+    std::print("br label %{}", instr.operands[0].to_string());
+    break;
+
   case IRInstruction::OpCode::BR_COND:
-    std::print("{}  ; Unimplemented opcode", instr.opcode_to_string());
+    std::print("br {} {}, label %{}, label %{}",
+               instr.operands[0].type.to_string(),
+               instr.operands[0].to_string(), instr.operands[1].to_string(),
+               instr.operands[2].to_string());
     break;
   }
 }

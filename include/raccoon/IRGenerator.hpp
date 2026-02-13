@@ -18,6 +18,12 @@ public:
   void visit(BlockStmt& node) override;
   void visit(ReturnStmt& node) override;
   void visit(IntegerLiteral& node) override;
+  void visit(BinaryExpr& node) override;
+  void visit(IdentifierExpr& node) override;
+  void visit(VarDeclStmt& node) override;
+  void visit(AssignmentStmt& node) override;
+  void visit(ExpressionStmt& node) override;
+
 
 private:
   std::unique_ptr<IRModule> module;
@@ -28,6 +34,8 @@ private:
   int next_label = 0;
 
   IRValue last_value;
+
+  std::unordered_map<std::string, IRValue> variables;
 
   IRValue new_register(IRType type);
   std::string new_label(const std::string& prefix);

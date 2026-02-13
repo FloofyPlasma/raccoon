@@ -1,14 +1,15 @@
 #pragma once
 
+#include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
-#include <optional>
-#include <cstdint>
 
 enum class TokenType {
   // Keywords
   FUN,
   RETURN,
+  LET,
 
   // Types
   I32,
@@ -17,13 +18,20 @@ enum class TokenType {
   IDENTIFIER,
   INTEGER,
 
+  // Operators
+  PLUS,  // +
+  MINUS, // -
+  STAR,  // *
+  SLASH, // /
+  EQUAL, // =
+
   // Punctuation
-  LEFT_PAREN,     // (
-  RIGHT_PAREN,    // )
-  LEFT_BRACE,     // {
-  RIGHT_BRACE,    // }
-  COLON,          // :
-  SEMICOLON,      // ;
+  LEFT_PAREN,  // (
+  RIGHT_PAREN, // )
+  LEFT_BRACE,  // {
+  RIGHT_BRACE, // }
+  COLON,       // :
+  SEMICOLON,   // ;
 
   // Special
   END_OF_FILE
