@@ -49,6 +49,10 @@ private:
   std::unique_ptr<BlockStmt> parse_block();
   std::unique_ptr<Statement> parse_statement();
   std::unique_ptr<Statement> parse_var_decl();
+  std::unique_ptr<Statement> parse_if();
+  std::unique_ptr<Statement> parse_while();
+  std::unique_ptr<Statement> parse_for();
   std::unique_ptr<Expression> parse_expression(int min_precedence = 0);
+  std::unique_ptr<Expression> parse_unary();
   std::unique_ptr<Expression> parse_primary();
 };

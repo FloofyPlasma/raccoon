@@ -28,6 +28,7 @@ class Type : public ASTNode {
 public:
   enum class Kind {
     I32,
+    BOOL,
     VOID,
   };
 
@@ -40,7 +41,13 @@ public:
 
 class Expression : public ASTNode {
 public:
-  enum class Kind { INTEGER_LITERAL, BINARY_EXPR, IDENTIFIER };
+  enum class Kind {
+    INTEGER_LITERAL,
+    BOOL_LITERAL,
+    BINARY_EXPR,
+    UNARY_EXPR,
+    IDENTIFIER,
+  };
 
   Kind kind;
 
@@ -86,11 +93,44 @@ public:
   void accept(ASTVisitor &visitor) override;
 };
 
+class BoolLiteral : public Expression {
+public:
+  bool value;
+
+  BoolLiteral(bool val, SourceLocation loc)
+      : Expression(Kind::BOOL_LITERAL, loc), value(val) {}
+
+  void accept(ASTVisitor &visitor) override;
+};
+
+class UnaryExpr : public Expression {
+public:
+  TokenType op; // MINUS, BANG
+  std::unique_ptr<Expression> operand;
+
+  UnaryExpr(TokenType o, std::unique_ptr<Expression> operand,
+            SourceLocation loc)
+      : Expression(Kind::UNARY_EXPR, loc), op(o), operand(std::move(operand)) {}
+
+  void accept(ASTVisitor &visitor) override;
+};
+
 #pragma mark Statements
 
 class Statement : public ASTNode {
 public:
-  enum class Kind { BLOCK, RETURN, VAR_DECL, ASSIGNMENT, EXPRESSION };
+  enum class Kind {
+    BLOCK,
+    RETURN,
+    VAR_DECL,
+    ASSIGNMENT,
+    EXPRESSION,
+    IF,
+    WHILE,
+    FOR,
+    BREAK,
+    CONTINUE,
+  };
 
   Kind kind;
 
@@ -157,6 +197,66 @@ public:
   void accept(ASTVisitor &visitor) override;
 };
 
+class IfStmt : public Statement {
+public:
+  std::unique_ptr<Expression> condition;
+  std::unique_ptr<BlockStmt> then_branch;
+  std::unique_ptr<BlockStmt> else_branch; // nullptr if no else
+
+  IfStmt(std::unique_ptr<Expression> cond, std::unique_ptr<BlockStmt> then_b,
+         std::unique_ptr<BlockStmt> else_b, SourceLocation loc)
+      : Statement(Kind::IF, loc), condition(std::move(cond)),
+        then_branch(std::move(then_b)), else_branch(std::move(else_b)) {}
+
+  void accept(ASTVisitor &visitor) override;
+};
+
+class WhileStmt : public Statement {
+public:
+  std::unique_ptr<Expression> condition;
+  std::unique_ptr<BlockStmt> body;
+
+  WhileStmt(std::unique_ptr<Expression> cond, std::unique_ptr<BlockStmt> body,
+            SourceLocation loc)
+      : Statement(Kind::WHILE, loc), condition(std::move(cond)),
+        body(std::move(body)) {}
+
+  void accept(ASTVisitor &visitor) override;
+};
+
+class ForStmt : public Statement {
+public:
+  std::unique_ptr<Statement>
+      initializer; // VarDeclStmt or ExpressionStmt, or nullptr
+  std::unique_ptr<Expression> condition;
+  std::unique_ptr<Statement>
+      increment; // AssignmentStmt or ExpressionStmt, or nullptr
+  std::unique_ptr<BlockStmt> body;
+
+  ForStmt(std::unique_ptr<Statement> init, std::unique_ptr<Expression> cond,
+          std::unique_ptr<Statement> incr, std::unique_ptr<BlockStmt> body,
+          SourceLocation loc)
+      : Statement(Kind::FOR, loc), initializer(std::move(init)),
+        condition(std::move(cond)), increment(std::move(incr)),
+        body(std::move(body)) {}
+
+  void accept(ASTVisitor &visitor) override;
+};
+
+class BreakStmt : public Statement {
+public:
+  explicit BreakStmt(SourceLocation loc) : Statement(Kind::BREAK, loc) {}
+
+  void accept(ASTVisitor &visitor) override;
+};
+
+class ContinueStmt : public Statement {
+public:
+  explicit ContinueStmt(SourceLocation loc) : Statement(Kind::CONTINUE, loc) {}
+
+  void accept(ASTVisitor &visitor) override;
+};
+
 #pragma mark Declarations
 
 struct Parameter {
@@ -195,7 +295,9 @@ public:
 
   // Expressions
   virtual void visit(IntegerLiteral &node) = 0;
+  virtual void visit(BoolLiteral &node) = 0;
   virtual void visit(BinaryExpr &node) = 0;
+  virtual void visit(UnaryExpr &node) = 0;
   virtual void visit(IdentifierExpr &node) = 0;
 
   // Statements
@@ -204,6 +306,11 @@ public:
   virtual void visit(VarDeclStmt &node) = 0;
   virtual void visit(AssignmentStmt &node) = 0;
   virtual void visit(ExpressionStmt &node) = 0;
+  virtual void visit(IfStmt &node) = 0;
+  virtual void visit(WhileStmt &node) = 0;
+  virtual void visit(ForStmt &node) = 0;
+  virtual void visit(BreakStmt &node) = 0;
+  virtual void visit(ContinueStmt &node) = 0;
 
   // Declarations
   virtual void visit(FunctionDecl &node) = 0;

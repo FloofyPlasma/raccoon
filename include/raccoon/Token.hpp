@@ -10,20 +10,42 @@ enum class TokenType {
   FUN,
   RETURN,
   LET,
+  IF,
+  ELSE,
+  WHILE,
+  FOR,
+  BREAK,
+  CONTINUE,
+  TRUE_KW,
+  FALSE_KW,
 
   // Types
   I32,
+  BOOL,
 
   // Literals
   IDENTIFIER,
   INTEGER,
 
-  // Operators
+  // Arithmetic Operators
   PLUS,  // +
   MINUS, // -
   STAR,  // *
   SLASH, // /
   EQUAL, // =
+
+  // Comparison Operators
+  LESS,          // <
+  GREATER,       // >
+  LESS_EQUAL,    // <=
+  GREATER_EQUAL, // >=
+  EQUAL_EQUAL,   // ==
+  BANG_EQUAL,    // !=
+
+  // Logical Operators
+  AND_AND, // &&
+  OR_OR,   // ||
+  BANG,    // !
 
   // Punctuation
   LEFT_PAREN,  // (

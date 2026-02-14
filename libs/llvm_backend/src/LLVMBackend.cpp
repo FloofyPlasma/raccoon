@@ -257,6 +257,115 @@ void LLVMBackend::generate_instruction(const IRInstruction &instr) {
     break;
   }
 
+  case IRInstruction::OpCode::NEG: {
+    llvm::Value *operand = get_value(instr.operands[0]);
+    if (!operand) {
+      return;
+    }
+    llvm::Value *result = builder.CreateNeg(operand, instr.result.name);
+    value_map[instr.result.name] = result;
+    break;
+  }
+
+  case IRInstruction::OpCode::NOT: {
+    llvm::Value *operand = get_value(instr.operands[0]);
+    if (!operand) {
+      return;
+    }
+    llvm::Value *result = builder.CreateXor(
+        operand, llvm::ConstantInt::getTrue(context), instr.result.name);
+    value_map[instr.result.name] = result;
+    break;
+  }
+
+  case IRInstruction::OpCode::ICMP_EQ: {
+    llvm::Value *left = get_value(instr.operands[0]);
+    llvm::Value *right = get_value(instr.operands[1]);
+    if (!left || !right) {
+      return;
+    }
+    llvm::Value *result = builder.CreateICmpEQ(left, right, instr.result.name);
+    value_map[instr.result.name] = result;
+    break;
+  }
+
+  case IRInstruction::OpCode::ICMP_NE: {
+    llvm::Value *left = get_value(instr.operands[0]);
+    llvm::Value *right = get_value(instr.operands[1]);
+    if (!left || !right) {
+      return;
+    }
+    llvm::Value *result = builder.CreateICmpNE(left, right, instr.result.name);
+    value_map[instr.result.name] = result;
+    break;
+  }
+
+  case IRInstruction::OpCode::ICMP_SLT: {
+    llvm::Value *left = get_value(instr.operands[0]);
+    llvm::Value *right = get_value(instr.operands[1]);
+    if (!left || !right) {
+      return;
+    }
+    llvm::Value *result = builder.CreateICmpSLT(left, right, instr.result.name);
+    value_map[instr.result.name] = result;
+    break;
+  }
+
+  case IRInstruction::OpCode::ICMP_SGT: {
+    llvm::Value *left = get_value(instr.operands[0]);
+    llvm::Value *right = get_value(instr.operands[1]);
+    if (!left || !right) {
+      return;
+    }
+    llvm::Value *result = builder.CreateICmpSGT(left, right, instr.result.name);
+    value_map[instr.result.name] = result;
+    break;
+  }
+
+  case IRInstruction::OpCode::ICMP_SLE: {
+    llvm::Value *left = get_value(instr.operands[0]);
+    llvm::Value *right = get_value(instr.operands[1]);
+    if (!left || !right) {
+      return;
+    }
+    llvm::Value *result = builder.CreateICmpSLE(left, right, instr.result.name);
+    value_map[instr.result.name] = result;
+    break;
+  }
+
+  case IRInstruction::OpCode::ICMP_SGE: {
+    llvm::Value *left = get_value(instr.operands[0]);
+    llvm::Value *right = get_value(instr.operands[1]);
+    if (!left || !right) {
+      return;
+    }
+    llvm::Value *result = builder.CreateICmpSGE(left, right, instr.result.name);
+    value_map[instr.result.name] = result;
+    break;
+  }
+
+  case IRInstruction::OpCode::AND: {
+    llvm::Value *left = get_value(instr.operands[0]);
+    llvm::Value *right = get_value(instr.operands[1]);
+    if (!left || !right) {
+      return;
+    }
+    llvm::Value *result = builder.CreateAnd(left, right, instr.result.name);
+    value_map[instr.result.name] = result;
+    break;
+  }
+
+  case IRInstruction::OpCode::OR: {
+    llvm::Value *left = get_value(instr.operands[0]);
+    llvm::Value *right = get_value(instr.operands[1]);
+    if (!left || !right) {
+      return;
+    }
+    llvm::Value *result = builder.CreateOr(left, right, instr.result.name);
+    value_map[instr.result.name] = result;
+    break;
+  }
+
   default: {
     error(std::format("Unimplemented IR instruction: {}",
                       instr.opcode_to_string()));
@@ -269,6 +378,10 @@ llvm::Type *LLVMBackend::convert_type(const IRType &ir_type) {
   switch (ir_type.kind) {
   case IRType::Kind::I32: {
     return llvm::Type::getInt32Ty(context);
+  }
+
+  case IRType::Kind::BOOL: {
+    return llvm::Type::getInt1Ty(context);
   }
 
   case IRType::Kind::VOID: {
@@ -308,6 +421,11 @@ llvm::Constant *LLVMBackend::get_constant(const IRValue &ir_value) {
   switch (ir_value.type.kind) {
   case IRType::Kind::I32: {
     return llvm::ConstantInt::get(llvm::Type::getInt32Ty(context),
+                                  ir_value.int_const);
+  }
+
+  case IRType::Kind::BOOL: {
+    return llvm::ConstantInt::get(llvm::Type::getInt1Ty(context),
                                   ir_value.int_const);
   }
 

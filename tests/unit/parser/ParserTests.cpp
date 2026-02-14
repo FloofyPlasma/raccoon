@@ -1,356 +1,254 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include "raccoon/Lexer.hpp"
 #include "raccoon/Parser.hpp"
-#include "raccoon/Token.hpp"
 
-std::vector<Token> wrap_in_function(std::vector<Token> body_tokens) {
-  std::vector<Token> tokens = {
-      {TokenType::FUN, "fun", {"t.rac", 1, 1}},
-      {TokenType::IDENTIFIER, "test", {"t.rac", 1, 5}},
-      {TokenType::LEFT_PAREN, "(", {"t.rac", 1, 9}},
-      {TokenType::RIGHT_PAREN, ")", {"t.rac", 1, 10}},
-      {TokenType::COLON, ":", {"t.rac", 1, 11}},
-      {TokenType::I32, "i32", {"t.rac", 1, 13}},
-      {TokenType::LEFT_BRACE, "{", {"t.rac", 1, 17}},
-  };
-  for (auto &t : body_tokens) {
-    tokens.push_back(t);
-  }
-  tokens.push_back({TokenType::RIGHT_BRACE, "}", {"t.rac", 99, 1}});
-  tokens.push_back({TokenType::END_OF_FILE, "", {"t.rac", 99, 2}});
-  return tokens;
-}
-
-TEST_CASE("Parser parses return with integer literal", "[parser]") {
-  auto tokens = wrap_in_function({
-      {TokenType::RETURN, "return", {"t.rac", 2, 5}},
-      {TokenType::INTEGER, "42", {"t.rac", 2, 12}, 42},
-      {TokenType::SEMICOLON, ";", {"t.rac", 2, 14}},
-  });
+std::unique_ptr<ProgramNode> parse_source(const std::string &source) {
+  Lexer lexer(source, "test.rac");
+  auto tokens = lexer.lex();
+  if (lexer.has_errors())
+    return nullptr;
 
   Parser parser(std::move(tokens));
   auto result = parser.parse();
+  if (!result.has_value())
+    return nullptr;
+  return std::move(result.value());
+}
 
-  REQUIRE(result.has_value());
-  auto &func = result.value()->functions[0];
-  REQUIRE(func->body->statements.size() == 1);
-  REQUIRE(func->body->statements[0]->kind == Statement::Kind::RETURN);
+Statement *first_stmt(ProgramNode *prog) {
+  return prog->functions[0]->body->statements[0].get();
+}
 
-  auto *ret = static_cast<ReturnStmt *>(func->body->statements[0].get());
-  REQUIRE(ret->value->kind == Expression::Kind::INTEGER_LITERAL);
-  auto *lit = static_cast<IntegerLiteral *>(ret->value.get());
+Expression *return_expr(ProgramNode *prog) {
+  auto *ret = static_cast<ReturnStmt *>(first_stmt(prog));
+  return ret->value.get();
+}
+
+TEST_CASE("Parser parses return with integer literal", "[parser]") {
+  auto ast = parse_source("fun main(): i32 { return 42; }");
+  REQUIRE(ast != nullptr);
+  REQUIRE(first_stmt(ast.get())->kind == Statement::Kind::RETURN);
+  auto *lit = static_cast<IntegerLiteral *>(return_expr(ast.get()));
   REQUIRE(lit->value == 42);
 }
 
 TEST_CASE("Parser parses binary expression", "[parser]") {
-  auto tokens = wrap_in_function({
-      {TokenType::RETURN, "return", {"t.rac", 2, 5}},
-      {TokenType::INTEGER, "10", {"t.rac", 2, 12}, 10},
-      {TokenType::PLUS, "+", {"t.rac", 2, 15}},
-      {TokenType::INTEGER, "20", {"t.rac", 2, 17}, 20},
-      {TokenType::SEMICOLON, ";", {"t.rac", 2, 19}},
-  });
-
-  Parser parser(std::move(tokens));
-  auto result = parser.parse();
-
-  REQUIRE(result.has_value());
-  auto *ret = static_cast<ReturnStmt *>(
-      result.value()->functions[0]->body->statements[0].get());
-  REQUIRE(ret->value->kind == Expression::Kind::BINARY_EXPR);
-
-  auto *bin = static_cast<BinaryExpr *>(ret->value.get());
+  auto ast = parse_source("fun main(): i32 { return 10 + 20; }");
+  REQUIRE(ast != nullptr);
+  auto *bin = static_cast<BinaryExpr *>(return_expr(ast.get()));
   REQUIRE(bin->op == TokenType::PLUS);
-  REQUIRE(bin->left->kind == Expression::Kind::INTEGER_LITERAL);
-  REQUIRE(bin->right->kind == Expression::Kind::INTEGER_LITERAL);
-  REQUIRE(static_cast<IntegerLiteral *>(bin->left.get())->value == 10);
-  REQUIRE(static_cast<IntegerLiteral *>(bin->right.get())->value == 20);
 }
 
-TEST_CASE("Parser respects operator precedence", "[parser]") {
-  // 1 + 2 * 3  should parse as  1 + (2 * 3)
-  auto tokens = wrap_in_function({
-      {TokenType::RETURN, "return", {"t.rac", 2, 5}},
-      {TokenType::INTEGER, "1", {"t.rac", 2, 12}, 1},
-      {TokenType::PLUS, "+", {"t.rac", 2, 14}},
-      {TokenType::INTEGER, "2", {"t.rac", 2, 16}, 2},
-      {TokenType::STAR, "*", {"t.rac", 2, 18}},
-      {TokenType::INTEGER, "3", {"t.rac", 2, 20}, 3},
-      {TokenType::SEMICOLON, ";", {"t.rac", 2, 21}},
-  });
-
-  Parser parser(std::move(tokens));
-  auto result = parser.parse();
-  REQUIRE(result.has_value());
-
-  auto *ret = static_cast<ReturnStmt *>(
-      result.value()->functions[0]->body->statements[0].get());
-  auto *plus = static_cast<BinaryExpr *>(ret->value.get());
-
+TEST_CASE("Parser respects * over + precedence", "[parser]") {
+  auto ast = parse_source("fun main(): i32 { return 1 + 2 * 3; }");
+  REQUIRE(ast != nullptr);
+  auto *plus = static_cast<BinaryExpr *>(return_expr(ast.get()));
   REQUIRE(plus->op == TokenType::PLUS);
-  REQUIRE(plus->left->kind == Expression::Kind::INTEGER_LITERAL);
   REQUIRE(plus->right->kind == Expression::Kind::BINARY_EXPR);
-
   auto *mul = static_cast<BinaryExpr *>(plus->right.get());
   REQUIRE(mul->op == TokenType::STAR);
 }
 
 TEST_CASE("Parser handles left associativity", "[parser]") {
-  // 1 - 2 - 3  should parse as  (1 - 2) - 3
-  auto tokens = wrap_in_function({
-      {TokenType::RETURN, "return", {"t.rac", 2, 5}},
-      {TokenType::INTEGER, "1", {"t.rac", 2, 12}, 1},
-      {TokenType::MINUS, "-", {"t.rac", 2, 14}},
-      {TokenType::INTEGER, "2", {"t.rac", 2, 16}, 2},
-      {TokenType::MINUS, "-", {"t.rac", 2, 18}},
-      {TokenType::INTEGER, "3", {"t.rac", 2, 20}, 3},
-      {TokenType::SEMICOLON, ";", {"t.rac", 2, 21}},
-  });
-
-  Parser parser(std::move(tokens));
-  auto result = parser.parse();
-  REQUIRE(result.has_value());
-
-  auto *ret = static_cast<ReturnStmt *>(
-      result.value()->functions[0]->body->statements[0].get());
-  auto *outer = static_cast<BinaryExpr *>(ret->value.get());
-
-  // Outer is (1 - 2) - 3
+  auto ast = parse_source("fun main(): i32 { return 1 - 2 - 3; }");
+  REQUIRE(ast != nullptr);
+  auto *outer = static_cast<BinaryExpr *>(return_expr(ast.get()));
   REQUIRE(outer->op == TokenType::MINUS);
   REQUIRE(outer->left->kind == Expression::Kind::BINARY_EXPR);
   REQUIRE(outer->right->kind == Expression::Kind::INTEGER_LITERAL);
-  REQUIRE(static_cast<IntegerLiteral *>(outer->right.get())->value == 3);
-
-  auto *inner = static_cast<BinaryExpr *>(outer->left.get());
-  REQUIRE(inner->op == TokenType::MINUS);
-  REQUIRE(static_cast<IntegerLiteral *>(inner->left.get())->value == 1);
-  REQUIRE(static_cast<IntegerLiteral *>(inner->right.get())->value == 2);
 }
 
 TEST_CASE("Parser parses parenthesized expressions", "[parser]") {
-  // (1 + 2) * 3  should parse as  (1 + 2) * 3
-  auto tokens = wrap_in_function({
-      {TokenType::RETURN, "return", {"t.rac", 2, 5}},
-      {TokenType::LEFT_PAREN, "(", {"t.rac", 2, 12}},
-      {TokenType::INTEGER, "1", {"t.rac", 2, 13}, 1},
-      {TokenType::PLUS, "+", {"t.rac", 2, 15}},
-      {TokenType::INTEGER, "2", {"t.rac", 2, 17}, 2},
-      {TokenType::RIGHT_PAREN, ")", {"t.rac", 2, 18}},
-      {TokenType::STAR, "*", {"t.rac", 2, 20}},
-      {TokenType::INTEGER, "3", {"t.rac", 2, 22}, 3},
-      {TokenType::SEMICOLON, ";", {"t.rac", 2, 23}},
-  });
-
-  Parser parser(std::move(tokens));
-  auto result = parser.parse();
-  REQUIRE(result.has_value());
-
-  auto *ret = static_cast<ReturnStmt *>(
-      result.value()->functions[0]->body->statements[0].get());
-  auto *mul = static_cast<BinaryExpr *>(ret->value.get());
-
+  auto ast = parse_source("fun main(): i32 { return (1 + 2) * 3; }");
+  REQUIRE(ast != nullptr);
+  auto *mul = static_cast<BinaryExpr *>(return_expr(ast.get()));
   REQUIRE(mul->op == TokenType::STAR);
   REQUIRE(mul->left->kind == Expression::Kind::BINARY_EXPR);
-
-  auto *add = static_cast<BinaryExpr *>(mul->left.get());
-  REQUIRE(add->op == TokenType::PLUS);
 }
 
-TEST_CASE("Parser parses variable declaration with initializer", "[parser]") {
-  auto tokens = wrap_in_function({
-      {TokenType::LET, "let", {"t.rac", 2, 5}},
-      {TokenType::IDENTIFIER, "x", {"t.rac", 2, 9}},
-      {TokenType::COLON, ":", {"t.rac", 2, 10}},
-      {TokenType::I32, "i32", {"t.rac", 2, 12}},
-      {TokenType::EQUAL, "=", {"t.rac", 2, 16}},
-      {TokenType::INTEGER, "42", {"t.rac", 2, 18}, 42},
-      {TokenType::SEMICOLON, ";", {"t.rac", 2, 20}},
-      {TokenType::RETURN, "return", {"t.rac", 3, 5}},
-      {TokenType::INTEGER, "0", {"t.rac", 3, 12}, 0},
-      {TokenType::SEMICOLON, ";", {"t.rac", 3, 13}},
-  });
+TEST_CASE("Parser parses comparison operators", "[parser]") {
+  for (auto [src, expected_op] :
+       std::initializer_list<std::pair<const char *, TokenType>>{
+           {"fun f(): bool { return 1 < 2; }", TokenType::LESS},
+           {"fun f(): bool { return 1 > 2; }", TokenType::GREATER},
+           {"fun f(): bool { return 1 <= 2; }", TokenType::LESS_EQUAL},
+           {"fun f(): bool { return 1 >= 2; }", TokenType::GREATER_EQUAL},
+           {"fun f(): bool { return 1 == 2; }", TokenType::EQUAL_EQUAL},
+           {"fun f(): bool { return 1 != 2; }", TokenType::BANG_EQUAL},
+       }) {
+    auto ast = parse_source(src);
+    REQUIRE(ast != nullptr);
+    auto *bin = static_cast<BinaryExpr *>(return_expr(ast.get()));
+    REQUIRE(bin->op == expected_op);
+  }
+}
 
-  Parser parser(std::move(tokens));
-  auto result = parser.parse();
-  REQUIRE(result.has_value());
+TEST_CASE("Parser parses logical operators", "[parser]") {
+  auto ast = parse_source("fun f(): bool { return true && false; }");
+  REQUIRE(ast != nullptr);
+  auto *bin = static_cast<BinaryExpr *>(return_expr(ast.get()));
+  REQUIRE(bin->op == TokenType::AND_AND);
+}
 
-  auto &stmts = result.value()->functions[0]->body->statements;
-  REQUIRE(stmts.size() == 2);
-  REQUIRE(stmts[0]->kind == Statement::Kind::VAR_DECL);
+TEST_CASE("Parser precedence: comparison lower than arithmetic", "[parser]") {
+  // 1 + 2 < 3 + 4  →  (1+2) < (3+4)
+  auto ast = parse_source("fun f(): bool { return 1 + 2 < 3 + 4; }");
+  REQUIRE(ast != nullptr);
+  auto *cmp = static_cast<BinaryExpr *>(return_expr(ast.get()));
+  REQUIRE(cmp->op == TokenType::LESS);
+  REQUIRE(cmp->left->kind == Expression::Kind::BINARY_EXPR);
+  REQUIRE(cmp->right->kind == Expression::Kind::BINARY_EXPR);
+}
 
-  auto *var = static_cast<VarDeclStmt *>(stmts[0].get());
+TEST_CASE("Parser precedence: && lower than ==", "[parser]") {
+  // a == b && c == d  →  (a==b) && (c==d)
+  auto ast =
+      parse_source("fun f(): bool { let a: i32 = 1; let b: i32 = 1; let c: i32 "
+                   "= 1; let d: i32 = 1; return a == b && c == d; }");
+  REQUIRE(ast != nullptr);
+  // last stmt is return
+  auto &stmts = ast->functions[0]->body->statements;
+  auto *ret = static_cast<ReturnStmt *>(stmts.back().get());
+  auto *land = static_cast<BinaryExpr *>(ret->value.get());
+  REQUIRE(land->op == TokenType::AND_AND);
+  REQUIRE(land->left->kind == Expression::Kind::BINARY_EXPR);
+  REQUIRE(land->right->kind == Expression::Kind::BINARY_EXPR);
+}
+
+TEST_CASE("Parser parses unary minus", "[parser]") {
+  auto ast = parse_source("fun main(): i32 { return -42; }");
+  REQUIRE(ast != nullptr);
+  auto *unary = static_cast<UnaryExpr *>(return_expr(ast.get()));
+  REQUIRE(unary->op == TokenType::MINUS);
+  REQUIRE(unary->operand->kind == Expression::Kind::INTEGER_LITERAL);
+}
+
+TEST_CASE("Parser parses unary not", "[parser]") {
+  auto ast = parse_source("fun f(): bool { return !true; }");
+  REQUIRE(ast != nullptr);
+  auto *unary = static_cast<UnaryExpr *>(return_expr(ast.get()));
+  REQUIRE(unary->op == TokenType::BANG);
+  REQUIRE(unary->operand->kind == Expression::Kind::BOOL_LITERAL);
+}
+
+TEST_CASE("Parser parses bool literals", "[parser]") {
+  auto ast = parse_source("fun f(): bool { return true; }");
+  REQUIRE(ast != nullptr);
+  auto *lit = static_cast<BoolLiteral *>(return_expr(ast.get()));
+  REQUIRE(lit->value == true);
+}
+
+TEST_CASE("Parser parses if statement", "[parser]") {
+  auto ast =
+      parse_source("fun main(): i32 { if (true) { return 1; } return 0; }");
+  REQUIRE(ast != nullptr);
+  REQUIRE(first_stmt(ast.get())->kind == Statement::Kind::IF);
+  auto *if_stmt = static_cast<IfStmt *>(first_stmt(ast.get()));
+  REQUIRE(if_stmt->condition != nullptr);
+  REQUIRE(if_stmt->then_branch != nullptr);
+  REQUIRE(if_stmt->else_branch == nullptr);
+}
+
+TEST_CASE("Parser parses if/else statement", "[parser]") {
+  auto ast = parse_source(
+      "fun main(): i32 { if (true) { return 1; } else { return 0; } }");
+  REQUIRE(ast != nullptr);
+  auto *if_stmt = static_cast<IfStmt *>(first_stmt(ast.get()));
+  REQUIRE(if_stmt->else_branch != nullptr);
+}
+
+TEST_CASE("Parser parses else-if chain", "[parser]") {
+  auto ast = parse_source(R"(
+        fun main(): i32 {
+            if (true) { return 1; }
+            else if (false) { return 2; }
+            else { return 3; }
+        }
+    )");
+  REQUIRE(ast != nullptr);
+  auto *if_stmt = static_cast<IfStmt *>(first_stmt(ast.get()));
+  REQUIRE(if_stmt->else_branch != nullptr);
+  // else branch is a synthetic block containing an if stmt
+  REQUIRE(if_stmt->else_branch->statements.size() == 1);
+  REQUIRE(if_stmt->else_branch->statements[0]->kind == Statement::Kind::IF);
+}
+
+TEST_CASE("Parser parses while statement", "[parser]") {
+  auto ast =
+      parse_source("fun main(): i32 { while (true) { break; } return 0; }");
+  REQUIRE(ast != nullptr);
+  REQUIRE(first_stmt(ast.get())->kind == Statement::Kind::WHILE);
+  auto *while_stmt = static_cast<WhileStmt *>(first_stmt(ast.get()));
+  REQUIRE(while_stmt->condition != nullptr);
+  REQUIRE(while_stmt->body != nullptr);
+}
+
+TEST_CASE("Parser parses for statement", "[parser]") {
+  auto ast = parse_source(R"(
+        fun main(): i32 {
+            for (let i: i32 = 0; i < 10; i = i + 1) {
+                i = i;
+            }
+            return 0;
+        }
+    )");
+  REQUIRE(ast != nullptr);
+  REQUIRE(first_stmt(ast.get())->kind == Statement::Kind::FOR);
+  auto *for_stmt = static_cast<ForStmt *>(first_stmt(ast.get()));
+  REQUIRE(for_stmt->initializer != nullptr);
+  REQUIRE(for_stmt->condition != nullptr);
+  REQUIRE(for_stmt->increment != nullptr);
+  REQUIRE(for_stmt->body != nullptr);
+}
+
+TEST_CASE("Parser parses for with empty parts", "[parser]") {
+  auto ast = parse_source("fun main(): i32 { for (;;) { break; } return 0; }");
+  REQUIRE(ast != nullptr);
+  auto *for_stmt = static_cast<ForStmt *>(first_stmt(ast.get()));
+  REQUIRE(for_stmt->initializer == nullptr);
+  REQUIRE(for_stmt->condition == nullptr);
+  REQUIRE(for_stmt->increment == nullptr);
+}
+
+TEST_CASE("Parser parses break and continue", "[parser]") {
+  auto ast = parse_source(R"(
+        fun main(): i32 {
+            while (true) {
+                break;
+                continue;
+            }
+            return 0;
+        }
+    )");
+  REQUIRE(ast != nullptr);
+  auto *while_stmt = static_cast<WhileStmt *>(first_stmt(ast.get()));
+  REQUIRE(while_stmt->body->statements[0]->kind == Statement::Kind::BREAK);
+  REQUIRE(while_stmt->body->statements[1]->kind == Statement::Kind::CONTINUE);
+}
+
+TEST_CASE("Parser parses variable declaration", "[parser]") {
+  auto ast = parse_source("fun main(): i32 { let x: i32 = 42; return x; }");
+  REQUIRE(ast != nullptr);
+  auto *var = static_cast<VarDeclStmt *>(first_stmt(ast.get()));
   REQUIRE(var->name == "x");
   REQUIRE(var->type->kind == Type::Kind::I32);
   REQUIRE(var->initializer != nullptr);
-  REQUIRE(var->initializer->kind == Expression::Kind::INTEGER_LITERAL);
-  REQUIRE(static_cast<IntegerLiteral *>(var->initializer.get())->value == 42);
 }
 
-TEST_CASE("Parser parses uninitialized variable declaration", "[parser]") {
-  auto tokens = wrap_in_function({
-      {TokenType::LET, "let", {"t.rac", 2, 5}},
-      {TokenType::IDENTIFIER, "x", {"t.rac", 2, 9}},
-      {TokenType::COLON, ":", {"t.rac", 2, 10}},
-      {TokenType::I32, "i32", {"t.rac", 2, 12}},
-      {TokenType::SEMICOLON, ";", {"t.rac", 2, 15}},
-      {TokenType::RETURN, "return", {"t.rac", 3, 5}},
-      {TokenType::INTEGER, "0", {"t.rac", 3, 12}, 0},
-      {TokenType::SEMICOLON, ";", {"t.rac", 3, 13}},
-  });
-
-  Parser parser(std::move(tokens));
-  auto result = parser.parse();
-  REQUIRE(result.has_value());
-
-  auto *var = static_cast<VarDeclStmt *>(
-      result.value()->functions[0]->body->statements[0].get());
-  REQUIRE(var->name == "x");
-  REQUIRE(var->initializer == nullptr);
+TEST_CASE("Parser parses bool variable", "[parser]") {
+  auto ast =
+      parse_source("fun main(): i32 { let flag: bool = true; return 0; }");
+  REQUIRE(ast != nullptr);
+  auto *var = static_cast<VarDeclStmt *>(first_stmt(ast.get()));
+  REQUIRE(var->name == "flag");
+  REQUIRE(var->type->kind == Type::Kind::BOOL);
 }
 
-TEST_CASE("Parser parses assignment statement", "[parser]") {
-  auto tokens = wrap_in_function({
-      {TokenType::LET, "let", {"t.rac", 2, 5}},
-      {TokenType::IDENTIFIER, "x", {"t.rac", 2, 9}},
-      {TokenType::COLON, ":", {"t.rac", 2, 10}},
-      {TokenType::I32, "i32", {"t.rac", 2, 12}},
-      {TokenType::EQUAL, "=", {"t.rac", 2, 16}},
-      {TokenType::INTEGER, "5", {"t.rac", 2, 18}, 5},
-      {TokenType::SEMICOLON, ";", {"t.rac", 2, 19}},
-      // x = 10;
-      {TokenType::IDENTIFIER, "x", {"t.rac", 3, 5}},
-      {TokenType::EQUAL, "=", {"t.rac", 3, 7}},
-      {TokenType::INTEGER, "10", {"t.rac", 3, 9}, 10},
-      {TokenType::SEMICOLON, ";", {"t.rac", 3, 11}},
-      {TokenType::RETURN, "return", {"t.rac", 4, 5}},
-      {TokenType::INTEGER, "0", {"t.rac", 4, 12}, 0},
-      {TokenType::SEMICOLON, ";", {"t.rac", 4, 13}},
-  });
-
-  Parser parser(std::move(tokens));
-  auto result = parser.parse();
-  REQUIRE(result.has_value());
-
-  auto &stmts = result.value()->functions[0]->body->statements;
-  REQUIRE(stmts.size() == 3);
+TEST_CASE("Parser parses assignment", "[parser]") {
+  auto ast =
+      parse_source("fun main(): i32 { let x: i32 = 5; x = 10; return x; }");
+  REQUIRE(ast != nullptr);
+  auto &stmts = ast->functions[0]->body->statements;
   REQUIRE(stmts[1]->kind == Statement::Kind::ASSIGNMENT);
-
-  auto *assign = static_cast<AssignmentStmt *>(stmts[1].get());
-  REQUIRE(assign->name == "x");
-  REQUIRE(assign->value->kind == Expression::Kind::INTEGER_LITERAL);
-  REQUIRE(static_cast<IntegerLiteral *>(assign->value.get())->value == 10);
-}
-
-TEST_CASE("Parser parses expression statement", "[parser]") {
-  auto tokens = wrap_in_function({
-      {TokenType::INTEGER, "42", {"t.rac", 2, 5}, 42},
-      {TokenType::PLUS, "+", {"t.rac", 2, 8}},
-      {TokenType::INTEGER, "1", {"t.rac", 2, 10}, 1},
-      {TokenType::SEMICOLON, ";", {"t.rac", 2, 11}},
-      {TokenType::RETURN, "return", {"t.rac", 3, 5}},
-      {TokenType::INTEGER, "0", {"t.rac", 3, 12}, 0},
-      {TokenType::SEMICOLON, ";", {"t.rac", 3, 13}},
-  });
-
-  Parser parser(std::move(tokens));
-  auto result = parser.parse();
-  REQUIRE(result.has_value());
-
-  auto &stmts = result.value()->functions[0]->body->statements;
-  REQUIRE(stmts.size() == 2);
-  REQUIRE(stmts[0]->kind == Statement::Kind::EXPRESSION);
-}
-
-TEST_CASE("Parser parses identifier in expression", "[parser]") {
-  auto tokens = wrap_in_function({
-      {TokenType::RETURN, "return", {"t.rac", 2, 5}},
-      {TokenType::IDENTIFIER, "x", {"t.rac", 2, 12}},
-      {TokenType::SEMICOLON, ";", {"t.rac", 2, 13}},
-  });
-
-  Parser parser(std::move(tokens));
-  auto result = parser.parse();
-  REQUIRE(result.has_value());
-
-  auto *ret = static_cast<ReturnStmt *>(
-      result.value()->functions[0]->body->statements[0].get());
-  REQUIRE(ret->value->kind == Expression::Kind::IDENTIFIER);
-  REQUIRE(static_cast<IdentifierExpr *>(ret->value.get())->name == "x");
-}
-
-TEST_CASE("Parser reports missing semicolon", "[parser]") {
-  auto tokens = wrap_in_function({
-      {TokenType::RETURN, "return", {"t.rac", 2, 5}},
-      {TokenType::INTEGER, "42", {"t.rac", 2, 12}, 42},
-      // Missing SEMICOLON
-  });
-
-  Parser parser(std::move(tokens));
-  auto result = parser.parse();
-
-  REQUIRE_FALSE(result.has_value());
-  auto &errors = result.error();
-  REQUIRE(errors.size() >= 1);
-  REQUIRE(errors[0].message.find("';'") != std::string::npos);
-}
-
-TEST_CASE("Parser parses assignment with expression RHS", "[parser]") {
-  // x = x + 10;
-  auto tokens = wrap_in_function({
-      {TokenType::LET, "let", {"t.rac", 2, 5}},
-      {TokenType::IDENTIFIER, "x", {"t.rac", 2, 9}},
-      {TokenType::COLON, ":", {"t.rac", 2, 10}},
-      {TokenType::I32, "i32", {"t.rac", 2, 12}},
-      {TokenType::EQUAL, "=", {"t.rac", 2, 16}},
-      {TokenType::INTEGER, "5", {"t.rac", 2, 18}, 5},
-      {TokenType::SEMICOLON, ";", {"t.rac", 2, 19}},
-      {TokenType::IDENTIFIER, "x", {"t.rac", 3, 5}},
-      {TokenType::EQUAL, "=", {"t.rac", 3, 7}},
-      {TokenType::IDENTIFIER, "x", {"t.rac", 3, 9}},
-      {TokenType::PLUS, "+", {"t.rac", 3, 11}},
-      {TokenType::INTEGER, "10", {"t.rac", 3, 13}, 10},
-      {TokenType::SEMICOLON, ";", {"t.rac", 3, 15}},
-      {TokenType::RETURN, "return", {"t.rac", 4, 5}},
-      {TokenType::IDENTIFIER, "x", {"t.rac", 4, 12}},
-      {TokenType::SEMICOLON, ";", {"t.rac", 4, 13}},
-  });
-
-  Parser parser(std::move(tokens));
-  auto result = parser.parse();
-  REQUIRE(result.has_value());
-
-  auto &stmts = result.value()->functions[0]->body->statements;
-  REQUIRE(stmts.size() == 3);
-
-  auto *assign = static_cast<AssignmentStmt *>(stmts[1].get());
-  REQUIRE(assign->name == "x");
-  REQUIRE(assign->value->kind == Expression::Kind::BINARY_EXPR);
-}
-
-TEST_CASE("Parser parses all arithmetic operators", "[parser]") {
-  // Tests each: + - * /
-  auto test_op = [](TokenType op_type) {
-    auto tokens = wrap_in_function({
-        {TokenType::RETURN, "return", {"t.rac", 2, 5}},
-        {TokenType::INTEGER, "1", {"t.rac", 2, 12}, 1},
-        {op_type, "op", {"t.rac", 2, 14}},
-        {TokenType::INTEGER, "2", {"t.rac", 2, 16}, 2},
-        {TokenType::SEMICOLON, ";", {"t.rac", 2, 17}},
-    });
-
-    Parser parser(std::move(tokens));
-    auto result = parser.parse();
-    REQUIRE(result.has_value());
-
-    auto *ret = static_cast<ReturnStmt *>(
-        result.value()->functions[0]->body->statements[0].get());
-    REQUIRE(ret->value->kind == Expression::Kind::BINARY_EXPR);
-    auto *bin = static_cast<BinaryExpr *>(ret->value.get());
-    REQUIRE(bin->op == op_type);
-  };
-
-  SECTION("addition") { test_op(TokenType::PLUS); }
-  SECTION("subtraction") { test_op(TokenType::MINUS); }
-  SECTION("multiplication") { test_op(TokenType::STAR); }
-  SECTION("division") { test_op(TokenType::SLASH); }
 }

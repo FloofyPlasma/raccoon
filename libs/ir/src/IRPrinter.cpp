@@ -59,10 +59,24 @@ void IRPrinter::print_instruction(const IRInstruction &instr) {
   case IRInstruction::OpCode::SUB:
   case IRInstruction::OpCode::MUL:
   case IRInstruction::OpCode::SDIV:
+  case IRInstruction::OpCode::AND:
+  case IRInstruction::OpCode::OR:
+  case IRInstruction::OpCode::ICMP_EQ:
+  case IRInstruction::OpCode::ICMP_NE:
+  case IRInstruction::OpCode::ICMP_SLT:
+  case IRInstruction::OpCode::ICMP_SGT:
+  case IRInstruction::OpCode::ICMP_SLE:
+  case IRInstruction::OpCode::ICMP_SGE:
     std::print("{} = {} {} {}, {}", instr.result.to_string(),
                instr.opcode_to_string(), instr.result.type.to_string(),
                instr.operands[0].to_string(), instr.operands[1].to_string());
     break;
+
+  case IRInstruction::OpCode::NEG:
+  case IRInstruction::OpCode::NOT:
+    std::print("{} = {} {} {}", instr.result.to_string(),
+               instr.opcode_to_string(), instr.result.type.to_string(),
+               instr.operands[0].to_string());
 
   case IRInstruction::OpCode::RET:
     std::print("ret");

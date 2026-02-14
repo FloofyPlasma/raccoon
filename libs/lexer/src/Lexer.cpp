@@ -11,8 +11,26 @@ std::string token_type_to_string(TokenType type) {
     return "RETURN";
   case TokenType::LET:
     return "LET";
+  case TokenType::IF:
+    return "IF";
+  case TokenType::ELSE:
+    return "ELSE";
+  case TokenType::WHILE:
+    return "WHILE";
+  case TokenType::FOR:
+    return "FOR";
+  case TokenType::BREAK:
+    return "BREAK";
+  case TokenType::CONTINUE:
+    return "CONTINUE";
+  case TokenType::TRUE_KW:
+    return "TRUE";
+  case TokenType::FALSE_KW:
+    return "FALSE";
   case TokenType::I32:
     return "I32";
+  case TokenType::BOOL:
+    return "BOOL";
   case TokenType::IDENTIFIER:
     return "IDENTIFIER";
   case TokenType::INTEGER:
@@ -27,6 +45,24 @@ std::string token_type_to_string(TokenType type) {
     return "SLASH";
   case TokenType::EQUAL:
     return "EQUAL";
+  case TokenType::LESS:
+    return "LESS";
+  case TokenType::GREATER:
+    return "GREATER";
+  case TokenType::LESS_EQUAL:
+    return "LESS_EQUAL";
+  case TokenType::GREATER_EQUAL:
+    return "GREATER_EQUAL";
+  case TokenType::EQUAL_EQUAL:
+    return "EQUAL_EQUAL";
+  case TokenType::BANG_EQUAL:
+    return "BANG_EQUAL";
+  case TokenType::AND_AND:
+    return "AND_AND";
+  case TokenType::OR_OR:
+    return "OR_OR";
+  case TokenType::BANG:
+    return "BANG";
   case TokenType::LEFT_PAREN:
     return "LEFT_PAREN";
   case TokenType::RIGHT_PAREN:
@@ -129,46 +165,86 @@ Token Lexer::scan_token() {
   switch (c) {
   case '(':
     return Token{TokenType::LEFT_PAREN, std::string_view(&source[start], 1),
-                 loc, std::nullopt};
+                 loc};
   case ')':
     return Token{TokenType::RIGHT_PAREN, std::string_view(&source[start], 1),
-                 loc, std::nullopt};
+                 loc};
   case '{':
     return Token{TokenType::LEFT_BRACE, std::string_view(&source[start], 1),
-                 loc, std::nullopt};
+                 loc};
   case '}':
     return Token{TokenType::RIGHT_BRACE, std::string_view(&source[start], 1),
-                 loc, std::nullopt};
+                 loc};
   case ':':
-    return Token{TokenType::COLON, std::string_view(&source[start], 1), loc,
-                 std::nullopt};
+    return Token{TokenType::COLON, std::string_view(&source[start], 1), loc};
   case ';':
-    return Token{TokenType::SEMICOLON, std::string_view(&source[start], 1), loc,
-                 std::nullopt};
+    return Token{TokenType::SEMICOLON, std::string_view(&source[start], 1),
+                 loc};
   case '+':
-    return Token{TokenType::PLUS, std::string_view(&source[start], 1), loc,
-                 std::nullopt};
+    return Token{TokenType::PLUS, std::string_view(&source[start], 1), loc};
   case '-':
-    return Token{TokenType::MINUS, std::string_view(&source[start], 1), loc,
-                 std::nullopt};
+    return Token{TokenType::MINUS, std::string_view(&source[start], 1), loc};
   case '*':
-    return Token{TokenType::STAR, std::string_view(&source[start], 1), loc,
-                 std::nullopt};
+    return Token{TokenType::STAR, std::string_view(&source[start], 1), loc};
   case '/':
-    return Token{TokenType::SLASH, std::string_view(&source[start], 1), loc,
-                 std::nullopt};
+    return Token{TokenType::SLASH, std::string_view(&source[start], 1), loc};
+
+  // Two-character tokens with lookahead
   case '=':
-    return Token{TokenType::EQUAL, std::string_view(&source[start], 1), loc,
-                 std::nullopt};
+    if (peek() == '=') {
+      advance();
+      return Token{TokenType::EQUAL_EQUAL, std::string_view(&source[start], 2),
+                   loc};
+    }
+    return Token{TokenType::EQUAL, std::string_view(&source[start], 1), loc};
+
+  case '<':
+    if (peek() == '=') {
+      advance();
+      return Token{TokenType::LESS_EQUAL, std::string_view(&source[start], 2),
+                   loc};
+    }
+    return Token{TokenType::LESS, std::string_view(&source[start], 1), loc};
+
+  case '>':
+    if (peek() == '=') {
+      advance();
+      return Token{TokenType::GREATER_EQUAL,
+                   std::string_view(&source[start], 2), loc};
+    }
+    return Token{TokenType::GREATER, std::string_view(&source[start], 1), loc};
+
+  case '!':
+    if (peek() == '=') {
+      advance();
+      return Token{TokenType::BANG_EQUAL, std::string_view(&source[start], 2),
+                   loc};
+    }
+    return Token{TokenType::BANG, std::string_view(&source[start], 1), loc};
+
+  case '&':
+    if (peek() == '&') {
+      advance();
+      return Token{TokenType::AND_AND, std::string_view(&source[start], 2),
+                   loc};
+    }
+    error(std::string("Unexpected character: '&' (did you mean '&&'?)"));
+    return Token{TokenType::END_OF_FILE, std::string_view{}, loc};
+
+  case '|':
+    if (peek() == '|') {
+      advance();
+      return Token{TokenType::OR_OR, std::string_view(&source[start], 2), loc};
+    }
+    error(std::string("Unexpected character: '|' (did you mean '||'?)"));
+    return Token{TokenType::END_OF_FILE, std::string_view{}, loc};
 
   default:
     if (is_alpha(c) || c == '_') {
-      // Back up and scan identifier
       position--;
       column--;
       return scan_identifier_or_keyword();
     } else if (is_digit(c)) {
-      // Back up and scan number
       position--;
       column--;
       return scan_number();
@@ -192,10 +268,14 @@ Token Lexer::scan_identifier_or_keyword() {
 
   // Check for keywords
   static const std::unordered_map<std::string_view, TokenType> keywords = {
-      {"fun", TokenType::FUN},
-      {"return", TokenType::RETURN},
-      {"let", TokenType::LET},
-      {"i32", TokenType::I32}};
+      {"fun", TokenType::FUN},           {"return", TokenType::RETURN},
+      {"let", TokenType::LET},           {"if", TokenType::IF},
+      {"else", TokenType::ELSE},         {"while", TokenType::WHILE},
+      {"for", TokenType::FOR},           {"break", TokenType::BREAK},
+      {"continue", TokenType::CONTINUE}, {"true", TokenType::TRUE_KW},
+      {"false", TokenType::FALSE_KW},    {"i32", TokenType::I32},
+      {"bool", TokenType::BOOL},
+  };
 
   auto it = keywords.find(text);
   if (it != keywords.end()) {

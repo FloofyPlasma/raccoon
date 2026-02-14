@@ -13,12 +13,16 @@ class ASTPrinter : public ASTTraverser {
   }
 
   std::string type_to_string(const Type *type) {
-    if (!type)
+    if (!type) {
       return "unknown";
-    switch (type->kind) {
+    }
 
+    switch (type->kind) {
     case Type::Kind::I32:
       return "i32";
+
+    case Type::Kind::BOOL:
+      return "bool";
 
     case Type::Kind::VOID:
       return "void";
@@ -36,6 +40,24 @@ class ASTPrinter : public ASTTraverser {
       return "*";
     case TokenType::SLASH:
       return "/";
+    case TokenType::LESS:
+      return "<";
+    case TokenType::GREATER:
+      return ">";
+    case TokenType::LESS_EQUAL:
+      return "<=";
+    case TokenType::GREATER_EQUAL:
+      return ">=";
+    case TokenType::EQUAL_EQUAL:
+      return "==";
+    case TokenType::BANG_EQUAL:
+      return "!=";
+    case TokenType::AND_AND:
+      return "&&";
+    case TokenType::OR_OR:
+      return "||";
+    case TokenType::BANG:
+      return "!";
     default:
       return "?";
     }
@@ -106,12 +128,98 @@ public:
     indent--;
   }
 
+  void visit(IfStmt &node) override {
+    print_indent();
+    std::println("IfStmt");
+    indent++;
+    print_indent();
+    std::println("Condition:");
+    indent++;
+    node.condition->accept(*this);
+    indent--;
+    print_indent();
+    std::println("Then:");
+    node.then_branch->accept(*this);
+    if (node.else_branch) {
+      print_indent();
+      std::println("Else:");
+      node.else_branch->accept(*this);
+    }
+    indent--;
+  }
+
+  void visit(WhileStmt &node) override {
+    print_indent();
+    std::println("WhileStmt");
+    indent++;
+    print_indent();
+    std::println("Condition:");
+    indent++;
+    node.condition->accept(*this);
+    indent--;
+    print_indent();
+    std::println("Body:");
+    node.body->accept(*this);
+    indent--;
+  }
+
+  void visit(ForStmt &node) override {
+    print_indent();
+    std::println("ForStmt");
+    indent++;
+    if (node.initializer) {
+      print_indent();
+      std::println("Init:");
+      indent++;
+      node.initializer->accept(*this);
+      indent--;
+    }
+    if (node.condition) {
+      print_indent();
+      std::println("Condition:");
+      indent++;
+      node.condition->accept(*this);
+      indent--;
+    }
+    if (node.increment) {
+      print_indent();
+      std::println("Increment:");
+      indent++;
+      node.increment->accept(*this);
+      indent--;
+    }
+    print_indent();
+    std::println("Body:");
+    node.body->accept(*this);
+    indent--;
+  }
+
+  void visit(BreakStmt &node) override {
+    (void)node;
+    print_indent();
+    std::println("BreakStmt");
+  }
+
+  void visit(ContinueStmt &node) override {
+    (void)node;
+    print_indent();
+    std::println("ContinueStmt");
+  }
+
   void visit(BinaryExpr &node) override {
     print_indent();
     std::println("BinaryExpr: {}", op_to_string(node.op));
     indent++;
     node.left->accept(*this);
     node.right->accept(*this);
+    indent--;
+  }
+
+  void visit(UnaryExpr &node) override {
+    print_indent();
+    std::println("UnaryExpr: {}", op_to_string(node.op));
+    indent++;
+    node.operand->accept(*this);
     indent--;
   }
 
@@ -123,5 +231,10 @@ public:
   void visit(IntegerLiteral &node) override {
     print_indent();
     std::println("IntegerLiteral: {}", node.value);
+  }
+
+  void visit(BoolLiteral &node) override {
+    print_indent();
+    std::println("BoolLiteral: {}", node.value ? "true" : "false");
   }
 };

@@ -23,6 +23,14 @@ std::unique_ptr<IRModule> source_to_ir(const std::string &source) {
   return gen.generate(*ast, "test");
 }
 
+int count_opcode(const IRFunction& func, IRInstruction::OpCode op) {
+  int count = 0;
+  for (auto& block : func.basic_blocks)
+    for (auto& instr : block->instructions)
+      if (instr->opcode == op) count++;
+  return count;
+}
+
 TEST_CASE("IR generator creates module", "[ir]") {
   auto ir = source_to_ir(R"(
         fun main(): i32 { return 42; }
@@ -200,4 +208,134 @@ TEST_CASE("IR value factory methods work correctly", "[ir]") {
     REQUIRE(label.kind == IRValue::Kind::LABEL);
     REQUIRE(label.name == "entry");
   }
+}
+
+TEST_CASE("IR: comparison generates icmp", "[ir]") {
+    auto ir = source_to_ir("fun f(): bool { return 1 < 2; }");
+    REQUIRE(count_opcode(*ir->functions[0], IRInstruction::OpCode::ICMP_SLT) == 1);
+}
+
+TEST_CASE("IR: all comparison opcodes", "[ir]") {
+    SECTION("==") {
+        auto ir = source_to_ir("fun f(): bool { return 1 == 2; }");
+        REQUIRE(count_opcode(*ir->functions[0], IRInstruction::OpCode::ICMP_EQ) == 1);
+    }
+    SECTION("!=") {
+        auto ir = source_to_ir("fun f(): bool { return 1 != 2; }");
+        REQUIRE(count_opcode(*ir->functions[0], IRInstruction::OpCode::ICMP_NE) == 1);
+    }
+    SECTION(">") {
+        auto ir = source_to_ir("fun f(): bool { return 1 > 2; }");
+        REQUIRE(count_opcode(*ir->functions[0], IRInstruction::OpCode::ICMP_SGT) == 1);
+    }
+    SECTION("<=") {
+        auto ir = source_to_ir("fun f(): bool { return 1 <= 2; }");
+        REQUIRE(count_opcode(*ir->functions[0], IRInstruction::OpCode::ICMP_SLE) == 1);
+    }
+    SECTION(">=") {
+        auto ir = source_to_ir("fun f(): bool { return 1 >= 2; }");
+        REQUIRE(count_opcode(*ir->functions[0], IRInstruction::OpCode::ICMP_SGE) == 1);
+    }
+}
+
+TEST_CASE("IR: logical and", "[ir]") {
+    auto ir = source_to_ir("fun f(): bool { return true && false; }");
+    REQUIRE(count_opcode(*ir->functions[0], IRInstruction::OpCode::AND) == 1);
+}
+
+TEST_CASE("IR: logical or", "[ir]") {
+    auto ir = source_to_ir("fun f(): bool { return true || false; }");
+    REQUIRE(count_opcode(*ir->functions[0], IRInstruction::OpCode::OR) == 1);
+}
+
+TEST_CASE("IR: unary minus", "[ir]") {
+    auto ir = source_to_ir("fun main(): i32 { return -42; }");
+    REQUIRE(count_opcode(*ir->functions[0], IRInstruction::OpCode::NEG) == 1);
+}
+
+TEST_CASE("IR: unary not", "[ir]") {
+    auto ir = source_to_ir("fun f(): bool { return !true; }");
+    REQUIRE(count_opcode(*ir->functions[0], IRInstruction::OpCode::NOT) == 1);
+}
+
+TEST_CASE("IR: if creates multiple basic blocks", "[ir]") {
+    auto ir = source_to_ir(R"(
+        fun main(): i32 {
+            if (true) { return 1; }
+            return 0;
+        }
+    )");
+    // entry, then, merge (at minimum)
+    REQUIRE(ir->functions[0]->basic_blocks.size() >= 3);
+    REQUIRE(count_opcode(*ir->functions[0], IRInstruction::OpCode::BR_COND) == 1);
+}
+
+TEST_CASE("IR: if/else creates then and else blocks", "[ir]") {
+    auto ir = source_to_ir(R"(
+        fun main(): i32 {
+            if (true) { return 1; }
+            else { return 0; }
+        }
+    )");
+    // entry, then, else, merge
+    REQUIRE(ir->functions[0]->basic_blocks.size() >= 3);
+    REQUIRE(count_opcode(*ir->functions[0], IRInstruction::OpCode::BR_COND) == 1);
+}
+
+TEST_CASE("IR: while creates loop blocks", "[ir]") {
+    auto ir = source_to_ir(R"(
+        fun main(): i32 {
+            let x: i32 = 0;
+            while (x < 10) { x = x + 1; }
+            return x;
+        }
+    )");
+    // entry, while.cond, while.body, while.exit
+    REQUIRE(ir->functions[0]->basic_blocks.size() >= 4);
+    REQUIRE(count_opcode(*ir->functions[0], IRInstruction::OpCode::BR_COND) >= 1);
+}
+
+TEST_CASE("IR: break generates branch to exit", "[ir]") {
+    auto ir = source_to_ir(R"(
+        fun main(): i32 {
+            while (true) { break; }
+            return 0;
+        }
+    )");
+    // The break should generate a BR to exit label
+    REQUIRE(count_opcode(*ir->functions[0], IRInstruction::OpCode::BR) >= 1);
+}
+
+TEST_CASE("IR: for loop creates blocks", "[ir]") {
+    auto ir = source_to_ir(R"(
+        fun main(): i32 {
+            let sum: i32 = 0;
+            for (let i: i32 = 0; i < 10; i = i + 1) {
+                sum = sum + i;
+            }
+            return sum;
+        }
+    )");
+    // entry, for.cond, for.body, for.incr, for.exit
+    REQUIRE(ir->functions[0]->basic_blocks.size() >= 5);
+}
+
+TEST_CASE("IR: bool constant", "[ir]") {
+    auto ir = source_to_ir("fun f(): bool { return true; }");
+    auto& block = ir->functions[0]->basic_blocks[0];
+    auto& ret = block->instructions.back();
+    REQUIRE(ret->opcode == IRInstruction::OpCode::RET);
+    REQUIRE(ret->operands[0].kind == IRValue::Kind::CONSTANT);
+    REQUIRE(ret->operands[0].type.kind == IRType::Kind::BOOL);
+    REQUIRE(ret->operands[0].int_const == 1);
+}
+
+TEST_CASE("IR value factory methods", "[ir]") {
+    auto reg = IRValue::make_register(IRType(IRType::Kind::BOOL), "flag");
+    REQUIRE(reg.kind == IRValue::Kind::REGISTER);
+    REQUIRE(reg.type.kind == IRType::Kind::BOOL);
+
+    auto c = IRValue::make_constant(IRType(IRType::Kind::BOOL), 1);
+    REQUIRE(c.kind == IRValue::Kind::CONSTANT);
+    REQUIRE(c.int_const == 1);
 }

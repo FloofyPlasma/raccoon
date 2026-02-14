@@ -79,6 +79,11 @@ void Parser::synchronize() {
     case TokenType::FUN:
     case TokenType::RETURN:
     case TokenType::LET:
+    case TokenType::IF:
+    case TokenType::WHILE:
+    case TokenType::FOR:
+    case TokenType::BREAK:
+    case TokenType::CONTINUE:
       return;
     default:
       advance();
@@ -102,14 +107,24 @@ bool Parser::expect(TokenType type, const std::string &message) {
 
 int Parser::get_precedence(TokenType type) {
   switch (type) {
+  case TokenType::OR_OR:
+    return 1;
+  case TokenType::AND_AND:
+    return 2;
+  case TokenType::EQUAL_EQUAL:
+  case TokenType::BANG_EQUAL:
+    return 3;
+  case TokenType::LESS:
+  case TokenType::GREATER:
+  case TokenType::LESS_EQUAL:
+  case TokenType::GREATER_EQUAL:
+    return 4;
   case TokenType::PLUS:
   case TokenType::MINUS:
     return 9;
-
   case TokenType::STAR:
   case TokenType::SLASH:
     return 10;
-
   default:
     return 0;
   }
@@ -170,6 +185,10 @@ std::unique_ptr<Type> Parser::parse_type() {
     return std::make_unique<Type>(Type::Kind::I32, loc);
   }
 
+  if (match(TokenType::BOOL)) {
+    return std::make_unique<Type>(Type::Kind::BOOL, loc);
+  }
+
   error("Expected type");
   return nullptr;
 }
@@ -207,6 +226,32 @@ std::unique_ptr<Statement> Parser::parse_statement() {
 
   if (check(TokenType::LET)) {
     return parse_var_decl();
+  }
+
+  if (check(TokenType::IF)) {
+    return parse_if();
+  }
+
+  if (check(TokenType::WHILE)) {
+    return parse_while();
+  }
+
+  if (check(TokenType::FOR)) {
+    return parse_for();
+  }
+
+  if (match(TokenType::BREAK)) {
+    if (!expect(TokenType::SEMICOLON, "Expected ';' after 'break'")) {
+      return nullptr;
+    }
+    return std::make_unique<BreakStmt>(loc);
+  }
+
+  if (match(TokenType::CONTINUE)) {
+    if (!expect(TokenType::SEMICOLON, "Expected ';' after 'continue'")) {
+      return nullptr;
+    }
+    return std::make_unique<ContinueStmt>(loc);
   }
 
   if (match(TokenType::RETURN)) {
@@ -297,8 +342,104 @@ std::unique_ptr<Statement> Parser::parse_var_decl() {
                                        std::move(initializer), loc);
 }
 
+std::unique_ptr<Statement> Parser::parse_if() {
+  SourceLocation loc = peek().location;
+  if (!expect(TokenType::IF, "Expected 'if'")) {return nullptr;}
+  if (!expect(TokenType::LEFT_PAREN, "Expected '(' after 'if'")) {return nullptr;}
+
+  auto condition = parse_expression();
+  if (!condition) {return nullptr;}
+  if (!expect(TokenType::RIGHT_PAREN, "Expected ')' after if condition")) {return nullptr;}
+
+  auto then_branch = parse_block();
+  if (!then_branch) {return nullptr;}
+
+  std::unique_ptr<BlockStmt> else_branch;
+  if (match(TokenType::ELSE)) {
+    if (check(TokenType::IF)) {
+      // else if: wrap in a synthetic block
+      SourceLocation else_loc = peek().location;
+      auto nested_if = parse_if();
+      if (!nested_if) {return nullptr;}
+      else_branch = std::make_unique<BlockStmt>(else_loc);
+      else_branch->statements.push_back(std::move(nested_if));
+    } else {
+      else_branch = parse_block();
+      if (!else_branch) {return nullptr;}
+    }
+  }
+
+  return std::make_unique<IfStmt>(std::move(condition), std::move(then_branch), std::move(else_branch), loc);
+}
+
+std::unique_ptr<Statement> Parser::parse_while() {
+  SourceLocation loc = peek().location;
+  if (!expect(TokenType::WHILE, "Expected 'while'")) {return nullptr;}
+  if (!expect(TokenType::LEFT_PAREN, "Expected '(' after 'while'")) {return nullptr;}
+
+  auto condition = parse_expression();
+  if (!condition) {return nullptr;}
+  if (!expect(TokenType::RIGHT_PAREN, "Expected ')' after while condition")) {return nullptr;}
+
+  auto body = parse_block();
+  if (!body) {return nullptr;}
+
+  return std::make_unique<WhileStmt>(std::move(condition), std::move(body), loc);
+}
+
+std::unique_ptr<Statement> Parser::parse_for() {
+  SourceLocation loc = peek().location;
+  if (!expect(TokenType::FOR, "Expected 'for'")) {return nullptr;}
+  if (!expect(TokenType::LEFT_PAREN, "Expected '(' after 'for'")) {return nullptr;}
+
+  // Initializer
+  std::unique_ptr<Statement> initializer;
+  if (check(TokenType::LET)) {
+    initializer = parse_var_decl();
+    if (!initializer) {return nullptr;}
+  } else if (!check(TokenType::SEMICOLON)) {
+    auto expr = parse_expression();
+    if (!expr) {return nullptr;}
+    if (!expect(TokenType::SEMICOLON, "Expected ';' after for initializer")) {return nullptr;}
+    initializer = std::make_unique<ExpressionStmt>(std::move(expr), loc);
+  } else {
+    advance(); // consume bare ';'
+  }
+
+  // Condition
+  std::unique_ptr<Expression> condition;
+  if (!check(TokenType::SEMICOLON)) {
+    condition = parse_expression();
+    if (!condition) {return nullptr;}
+  }
+  if (!expect(TokenType::SEMICOLON, "Expected ';' after for condition")) {return nullptr;}
+
+  // Increment
+  std::unique_ptr<Statement> increment_stmt;
+  if (!check(TokenType::RIGHT_PAREN)) {
+    if (check(TokenType::IDENTIFIER) && current + 1 < tokens.size() && tokens[current + 1].type == TokenType::EQUAL) {
+      SourceLocation incr_loc = peek().location;
+      std::string name(advance().lexeme);
+      advance();
+      auto value = parse_expression();
+      if (!value) {return nullptr;}
+      increment_stmt = std::make_unique<AssignmentStmt>(std::move(name), std::move(value), incr_loc);
+    } else {
+      auto expr = parse_expression();
+      if (!expr) {return nullptr;}
+      increment_stmt = std::make_unique<ExpressionStmt>(std::move(expr), loc);
+    }
+  }
+  if (!expect(TokenType::RIGHT_PAREN, "Expected ')' after for clauses")) {return nullptr;}
+
+  auto body = parse_block();
+  if (!body) {return nullptr;}
+
+  return std::make_unique<ForStmt>(std::move(initializer), std::move(condition), std::move(increment_stmt), std::move(body), loc);
+}
+
 std::unique_ptr<Expression> Parser::parse_expression(int min_precedence) {
-  auto left = parse_primary();
+  auto left = parse_unary();
   if (!left) {
     return nullptr;
   }
@@ -322,6 +463,19 @@ std::unique_ptr<Expression> Parser::parse_expression(int min_precedence) {
   return left;
 }
 
+std::unique_ptr<Expression> Parser::parse_unary() {
+  SourceLocation loc = peek().location;
+
+  if (check(TokenType::MINUS) || check(TokenType::BANG)) {
+    TokenType op = advance().type;
+    auto operand = parse_unary();
+    if (!operand) {return nullptr;}
+    return std::make_unique<UnaryExpr>(op, std::move(operand), loc);
+  }
+
+  return parse_primary();
+}
+
 std::unique_ptr<Expression> Parser::parse_primary() {
   SourceLocation loc = peek().location;
 
@@ -330,6 +484,14 @@ std::unique_ptr<Expression> Parser::parse_primary() {
     int64_t value = peek().int_value.value();
     advance();
     return std::make_unique<IntegerLiteral>(value, loc);
+  }
+
+  if (match(TokenType::TRUE_KW)) {
+    return std::make_unique<BoolLiteral>(true, loc);
+  }
+
+  if (match(TokenType::FALSE_KW)) {
+    return std::make_unique<BoolLiteral>(false, loc);
   }
 
   // Identifier

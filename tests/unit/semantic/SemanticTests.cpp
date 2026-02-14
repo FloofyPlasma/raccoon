@@ -220,3 +220,180 @@ TEST_CASE("Semantic analyzer accepts expression statement", "[semantic]") {
     )");
   REQUIRE(result.success);
 }
+
+TEST_CASE("Semantic: bool variable", "[semantic]") {
+  REQUIRE(analyze_source("fun main(): i32 { let f: bool = true; return 0; }").success);
+}
+
+TEST_CASE("Semantic: bool literal false", "[semantic]") {
+  REQUIRE(analyze_source("fun f(): bool { return false; }").success);
+}
+
+TEST_CASE("Semantic: cannot return i32 from bool function", "[semantic]") {
+  auto r = analyze_source("fun f(): bool { return 42; }");
+  REQUIRE_FALSE(r.success);
+}
+
+TEST_CASE("Semantic: cannot return bool from i32 function", "[semantic]") {
+  auto r = analyze_source("fun f(): i32 { return true; }");
+  REQUIRE_FALSE(r.success);
+}
+
+
+TEST_CASE("Semantic: comparison returns bool", "[semantic]") {
+    auto r = analyze_source("fun f(): bool { return 1 < 2; }");
+    REQUIRE(r.success);
+}
+
+TEST_CASE("Semantic: all comparison operators", "[semantic]") {
+    for (auto op : {"<", ">", "<=", ">="}) {
+        auto r = analyze_source(std::string("fun f(): bool { return 1 ") + op + " 2; }");
+        REQUIRE(r.success);
+    }
+}
+
+TEST_CASE("Semantic: equality operators", "[semantic]") {
+    REQUIRE(analyze_source("fun f(): bool { return 1 == 2; }").success);
+    REQUIRE(analyze_source("fun f(): bool { return 1 != 2; }").success);
+    REQUIRE(analyze_source("fun f(): bool { return true == false; }").success);
+}
+
+TEST_CASE("Semantic: comparison requires matching types", "[semantic]") {
+    // Can't compare i32 with bool
+    auto r = analyze_source("fun f(): bool { let x: i32 = 1; let y: bool = true; return x == y; }");
+    REQUIRE_FALSE(r.success);
+    REQUIRE(r.errors[0].message.find("mismatch") != std::string::npos);
+}
+
+TEST_CASE("Semantic: arithmetic on bool is error", "[semantic]") {
+    auto r = analyze_source("fun f(): bool { return true + false; }");
+    REQUIRE_FALSE(r.success);
+    REQUIRE(r.errors[0].message.find("i32") != std::string::npos);
+}
+
+TEST_CASE("Semantic: logical and", "[semantic]") {
+    REQUIRE(analyze_source("fun f(): bool { return true && false; }").success);
+}
+
+TEST_CASE("Semantic: logical or", "[semantic]") {
+    REQUIRE(analyze_source("fun f(): bool { return true || false; }").success);
+}
+
+TEST_CASE("Semantic: logical on i32 is error", "[semantic]") {
+    auto r = analyze_source("fun f(): bool { return 1 && 2; }");
+    REQUIRE_FALSE(r.success);
+    REQUIRE(r.errors[0].message.find("bool") != std::string::npos);
+}
+
+TEST_CASE("Semantic: unary minus", "[semantic]") {
+    REQUIRE(analyze_source("fun main(): i32 { return -42; }").success);
+}
+
+TEST_CASE("Semantic: unary not", "[semantic]") {
+    REQUIRE(analyze_source("fun f(): bool { return !true; }").success);
+}
+
+TEST_CASE("Semantic: unary minus on bool is error", "[semantic]") {
+    auto r = analyze_source("fun f(): i32 { return -true; }");
+    REQUIRE_FALSE(r.success);
+}
+
+TEST_CASE("Semantic: unary not on i32 is error", "[semantic]") {
+    auto r = analyze_source("fun f(): bool { return !42; }");
+    REQUIRE_FALSE(r.success);
+}
+
+TEST_CASE("Semantic: if condition must be bool", "[semantic]") {
+    auto r = analyze_source("fun main(): i32 { if (42) { return 1; } return 0; }");
+    REQUIRE_FALSE(r.success);
+    REQUIRE(r.errors[0].message.find("bool") != std::string::npos);
+}
+
+TEST_CASE("Semantic: if with bool condition", "[semantic]") {
+    REQUIRE(analyze_source("fun main(): i32 { if (true) { return 1; } return 0; }").success);
+}
+
+TEST_CASE("Semantic: if/else both returning satisfies return check", "[semantic]") {
+    REQUIRE(analyze_source(R"(
+        fun main(): i32 {
+            if (true) { return 1; }
+            else { return 0; }
+        }
+    )").success);
+}
+
+TEST_CASE("Semantic: if without else doesn't satisfy return", "[semantic]") {
+    auto r = analyze_source("fun main(): i32 { if (true) { return 1; } }");
+    REQUIRE_FALSE(r.success);
+}
+
+TEST_CASE("Semantic: while condition must be bool", "[semantic]") {
+    auto r = analyze_source("fun main(): i32 { while (42) { break; } return 0; }");
+    REQUIRE_FALSE(r.success);
+}
+
+TEST_CASE("Semantic: valid while loop", "[semantic]") {
+    REQUIRE(analyze_source(R"(
+        fun main(): i32 {
+            let x: i32 = 0;
+            while (x < 10) { x = x + 1; }
+            return x;
+        }
+    )").success);
+}
+
+TEST_CASE("Semantic: break outside loop is error", "[semantic]") {
+    auto r = analyze_source("fun main(): i32 { break; return 0; }");
+    REQUIRE_FALSE(r.success);
+    REQUIRE(r.errors[0].message.find("loop") != std::string::npos);
+}
+
+TEST_CASE("Semantic: continue outside loop is error", "[semantic]") {
+    auto r = analyze_source("fun main(): i32 { continue; return 0; }");
+    REQUIRE_FALSE(r.success);
+    REQUIRE(r.errors[0].message.find("loop") != std::string::npos);
+}
+
+TEST_CASE("Semantic: break inside while is ok", "[semantic]") {
+    REQUIRE(analyze_source(R"(
+        fun main(): i32 {
+            while (true) { break; }
+            return 0;
+        }
+    )").success);
+}
+
+TEST_CASE("Semantic: continue inside for is ok", "[semantic]") {
+    REQUIRE(analyze_source(R"(
+        fun main(): i32 {
+            for (let i: i32 = 0; i < 10; i = i + 1) { continue; }
+            return 0;
+        }
+    )").success);
+}
+
+TEST_CASE("Semantic: for condition must be bool", "[semantic]") {
+    auto r = analyze_source("fun main(): i32 { for (let i: i32 = 0; 42; i = i + 1) { i = i; } return 0; }");
+    REQUIRE_FALSE(r.success);
+}
+
+TEST_CASE("Semantic: for initializer scoped to loop", "[semantic]") {
+    // 'i' should not be accessible after the for loop
+    auto r = analyze_source(R"(
+        fun main(): i32 {
+            for (let i: i32 = 0; i < 10; i = i + 1) { i = i; }
+            return i;
+        }
+    )");
+    REQUIRE_FALSE(r.success);
+    REQUIRE(r.errors[0].message.find("Undefined") != std::string::npos);
+}
+
+TEST_CASE("Semantic: for with empty parts", "[semantic]") {
+    REQUIRE(analyze_source(R"(
+        fun main(): i32 {
+            for (;;) { break; }
+            return 0;
+        }
+    )").success);
+}

@@ -8,7 +8,7 @@
 #pragma mark IR Types
 
 struct IRType {
-  enum class Kind { I32, VOID };
+  enum class Kind { I32, BOOL, VOID };
 
   Kind kind;
 
@@ -55,6 +55,20 @@ struct IRInstruction {
     SUB,
     MUL,
     SDIV,
+    NEG,
+
+    // Comparison
+    ICMP_EQ,
+    ICMP_NE,
+    ICMP_SLT,
+    ICMP_SGT,
+    ICMP_SLE,
+    ICMP_SGE,
+
+    // Logical (on bool)
+    AND,
+    OR,
+    NOT,
 
     // Control Flow
     RET,
