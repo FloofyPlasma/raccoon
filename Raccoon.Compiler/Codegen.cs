@@ -105,10 +105,11 @@ public class Codegen
         {
             foreach (var instr in block.Instructions)
             {
-                if (instr.ResultName != null && !tmpVars.Contains(instr.ResultName))
+                if (instr.ResultName != null && !tmpVars.Contains(instr.ResultName) && !(instr.GetType() is VoidType))
                 {
                     string tmpName = instr.ResultName.TrimStart('%');
-                    _output.AppendLine($"\tint32_t {tmpName};");
+                    var tmpType = instr.GetType();
+                    _output.AppendLine($"\t{tmpType.ToCCode()} {tmpName};");
                     tmpVars.Add(instr.ResultName);
                 }
             }
@@ -248,15 +249,16 @@ public class Codegen
         string rightStr = ValueToString(binOp.Right);
         string resultName = binOp.ResultName?.TrimStart('%') ?? "tmp";
 
-        _output.AppendLine($"    {resultName} = {leftStr} {op} {rightStr};");
+        _output.AppendLine($"\t{resultName} = {leftStr} {op} {rightStr};");
     }
 
     private void EmitUnaryOp(IRUnaryOp unaryOp)
     {
         string op = unaryOp.Op;
         string operandStr = ValueToString(unaryOp.Operand);
+        string resultName = unaryOp.ResultName?.TrimStart('%') ?? "tmp";
 
-        _output.AppendLine($"\t{unaryOp.ResultName} = {op}{operandStr};");
+        _output.AppendLine($"\t{resultName} = {op}{operandStr};");
     }
 
     private void EmitLoad(IRLoad load)

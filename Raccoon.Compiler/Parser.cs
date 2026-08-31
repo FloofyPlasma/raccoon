@@ -311,8 +311,24 @@ public class Parser
             {
                 Advance(); // consume '('
                 var args = new List<IRValue>();
-                args.Add(value); // 'self' is first argument
 
+                if (value.GetType() is PointerType)
+                {
+                    args.Add(value);
+                }
+                else
+                {
+                    var addrOf = new IRUnaryOp
+                    {
+                        Op = "&",
+                        Operand = value,
+                        ResultType = new PointerType(value.GetType()),
+                        ResultName = $"%addr{block.Instructions.Count}"
+                    };
+                    block.Instructions.Add(addrOf);
+                    args.Add(addrOf);
+                }
+                
                 while (!Check(TokenType.Rparen) && !IsAtEnd())
                 {
                     args.Add(ParseExpression(block, function));
