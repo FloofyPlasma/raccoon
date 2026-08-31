@@ -33,7 +33,17 @@ public class Parser
                 }
                 else if (Check(TokenType.Class))
                 {
-                    ParseClass();
+                    Advance(); // consume 'class'
+                    var cls = ParseClass();
+                    if (cls != null)
+                    {
+                        module.Classes.Add(cls);
+
+                        foreach (var method in cls.Methods)
+                        {
+                            module.Functions.Add(method);
+                        }
+                    }
                 }
                 else if (Check(TokenType.Import))
                 {
@@ -139,7 +149,8 @@ public class Parser
 
                 Match(TokenType.Semicolon);
                 break;
-            } else if (Check(TokenType.Identifier))
+            }
+            else if (Check(TokenType.Identifier))
             {
                 int savePos = _current;
                 Advance();
@@ -158,7 +169,9 @@ public class Parser
             }
             else
             {
-                Error($"Unexpected token in block: {Peek().Lexeme}");
+                var expr = ParseExpression(block, function);
+                Match(TokenType.Semicolon);
+                // Error($"Unexpected token in block: {Peek().Lexeme}");
                 Advance();
             }
         }
@@ -210,10 +223,11 @@ public class Parser
             var leftType = left.GetType();
             var rightType = right.GetType();
 
-            if (!leftType.IsCompatible(rightType))
-            {
-                Error($"Type mismatch: {leftType} and {rightType}");
-            }
+            // TODO: class safety stuff
+            // if (!leftType.IsCompatible(rightType))
+            // {
+            //     Error($"Type mismatch: {leftType} and {rightType}");
+            // }
 
             var binOp = new IRBinaryOp
             {
@@ -233,33 +247,117 @@ public class Parser
 
     private IRValue ParsePrimary(IRBasicBlock block, IRFunction function)
     {
+        var value = ParseAtom(block, function);
+
+        while (Check(TokenType.Dot))
+        {
+            Advance(); // consume '.'
+            string memberName;
+            if (Check(TokenType.Identifier))
+            {
+                memberName = Advance().Lexeme;
+            }
+            else if (Check(TokenType.Init))
+            {
+                memberName = "init";
+                Advance();
+            }
+            else
+            {
+                Error("Expected member or method name");
+                return value;
+            }
+
+            if (Check(TokenType.Lparen))
+            {
+                Advance(); // consume '('
+                var args = new List<IRValue>();
+                args.Add(value); // 'self' is first argument
+
+                while (!Check(TokenType.Rparen) && !IsAtEnd())
+                {
+                    args.Add(ParseExpression(block, function));
+                    if (!Check(TokenType.Rparen))
+                    {
+                        Consume(TokenType.Comma, "Expected ',' between arguments");
+                    }
+                }
+
+                Consume(TokenType.Rparen, "Expected ')' after arguments");
+
+                var callInstr = new IRCall
+                {
+                    FunctionName = $"{GetTypeNameFromValue(value)}_{memberName}",
+                    Arguments = args,
+                    ReturnType = new IntType { BitWidth = 32 },
+                    ResultName = $"%call{block.Instructions.Count}",
+                };
+
+                block.Instructions.Add(callInstr);
+                value = callInstr;
+            }
+            else
+            {
+                var fieldAccess = new IRMemberAccess
+                {
+                    Object = value,
+                    MemberName = memberName,
+                    ResultName = $"%member{block.Instructions.Count}",
+                };
+
+                block.Instructions.Add(fieldAccess);
+                value = fieldAccess;
+            }
+        }
+
+        return value;
+    }
+
+    private IRValue ParseAtom(IRBasicBlock block, IRFunction function)
+    {
         if (Match(TokenType.Int))
         {
-            var value = (long)_tokens[_current - 1].Literal;
+            var value = (long)_tokens[_current - 1].Literal!;
             return new IRConstant
             {
                 Value = value,
-                ValueType = new IntType { BitWidth = 32 }
+                ValueType = new IntType { BitWidth = 32 },
             };
         }
 
         if (Match(TokenType.Float))
         {
-            var value = (double)_tokens[_current - 1].Literal;
+            var value = (double)_tokens[_current - 1].Literal!;
             return new IRConstant
             {
                 Value = value,
-                ValueType = new FloatType { BitWidth = 32 }
+                ValueType = new FloatType { BitWidth = 32 },
             };
         }
 
         if (Match(TokenType.String))
         {
-            var value = (string)_tokens[_current - 1].Literal;
+            var value = (string)_tokens[_current - 1].Literal!;
             return new IRConstant
             {
                 Value = value,
                 ValueType = new StringType()
+            };
+        }
+
+        if (Match(TokenType.Self))
+        {
+            var symbol = _symbols.Lookup("self");
+            if (symbol == null)
+            {
+                Error("'self' not available in this context");
+                return new IRConstant { Value = 0, ValueType = new IntType() };
+            }
+
+            return new IRVariable
+            {
+                Name = "self",
+                VariableType = symbol.Type
             };
         }
 
@@ -280,23 +378,22 @@ public class Parser
                         Consume(TokenType.Comma, "Expected ',' between arguments");
                     }
                 }
-                
+
                 Consume(TokenType.Rparen, "Expected ')' after arguments");
-                
-                // For now I'm just assuming all functions return i32
+
                 // TODO: track function signatures properly
                 var callInstr = new IRCall
                 {
                     FunctionName = name,
                     Arguments = args,
-                    ReturnType = new IntType { BitWidth = 32},
-                    ResultName = $"%call{block.Instructions.Count}"
+                    ReturnType = new IntType { BitWidth = 32 },
+                    ResultName = $"%call{block.Instructions.Count}",
                 };
-                
+
                 block.Instructions.Add(callInstr);
                 return callInstr;
             }
-            
+
             var symbol = _symbols.Lookup(name);
 
             if (symbol == null)
@@ -308,19 +405,35 @@ public class Parser
             return new IRVariable
             {
                 Name = name,
-                VariableType = symbol.Type
+                VariableType = symbol.Type,
             };
         }
 
         if (Match(TokenType.Lparen))
         {
             var expr = ParseExpression(block, function);
-            Consume(TokenType.Rparen, "Expected ')' after expression");
+            Consume(TokenType.Rparen, "Expected ')' after arguments");
             return expr;
         }
 
         Error($"Unexpected token: {Peek().Lexeme}");
         return new IRConstant { Value = 0, ValueType = new IntType() };
+    }
+
+    private string GetTypeNameFromValue(IRValue value)
+    {
+        var valueType = value.GetType();
+        if (valueType is PointerType ptr && ptr.PointsTo is ClassType cls)
+        {
+            return cls.Name;
+        }
+
+        if (valueType is ClassType classType)
+        {
+            return classType.Name;
+        }
+
+        return "unknown";
     }
 
     private Type ParseType()
@@ -351,10 +464,79 @@ public class Parser
         return new IntType();
     }
 
-    private void ParseClass()
+    private IRClass? ParseClass()
     {
-        // TODO: Implement class parsing
-        Match(TokenType.Class);
+        var nameToken = Consume(TokenType.Identifier, "Expected class name");
+        string className = nameToken.Lexeme;
+
+        Consume(TokenType.Lbrace, "Expected '{' after class name");
+
+        var irClass = new IRClass { Name = className };
+        var classType = new ClassType(className);
+
+        _symbols.EnterScope();
+
+        while (!Check(TokenType.Rbrace) && !IsAtEnd())
+        {
+            if (Match(TokenType.Init))
+            {
+                var method = ParseMethod(className, "init");
+                if (method != null)
+                {
+                    irClass.Methods.Add(method);
+                }
+            }
+            else if (Check(TokenType.Identifier))
+            {
+                int savePos = _current;
+                var nameToken2 = Advance();
+                string memberName = nameToken2.Lexeme;
+
+                if (Check(TokenType.Colon))
+                {
+                    // Field decl
+                    _current = savePos;
+                    var fieldNameToken = Consume(TokenType.Identifier, "Expected field name");
+                    string fieldName = fieldNameToken.Lexeme;
+
+                    Consume(TokenType.Colon, "Expected ':' after field name");
+                    Type fieldType = ParseType();
+
+                    irClass.Fields.Add((fieldName, fieldType));
+                    classType.Fields[fieldName] = fieldType;
+
+                    Match(TokenType.Semicolon);
+                }
+                else if (Check(TokenType.Lparen))
+                {
+                    _current = savePos;
+                    var nameTokenMethod = Consume(TokenType.Identifier, "Expected method name");
+                    string methodName = nameTokenMethod.Lexeme;
+
+                    var method = ParseMethod(className, methodName);
+                    if (method != null)
+                    {
+                        irClass.Methods.Add(method);
+                    }
+                }
+                else
+                {
+                    Error($"Unexpected in class: expected ':' or '(' after {memberName}");
+                    Advance();
+                }
+            }
+            else
+            {
+                Error($"Unexpected token in class: {Peek().Lexeme}");
+                Advance();
+            }
+        }
+
+        Consume(TokenType.Rbrace, "Expected '}' after class body");
+
+        _symbols.ExitScope();
+
+        return irClass;
     }
 
     private void ParseImport()
@@ -439,4 +621,58 @@ public class Parser
     }
 
     public List<string> Errors => _errors;
+
+    private IRFunction? ParseMethod(string className, string methodName)
+    {
+        Consume(TokenType.Lparen, "Expected '(' after method name");
+
+        var method = new IRFunction { Name = $"{className}_{methodName}" };
+
+        _symbols.EnterScope();
+
+        var selfType = new ClassType(className);
+        method.Parameters.Add(("self", new PointerType(selfType)));
+        _symbols.Define("self", selfType);
+
+        while (!Check(TokenType.Rparen))
+        {
+            var paramNameToken = Consume(TokenType.Identifier, "Expected parameter name");
+            string paramName = paramNameToken.Lexeme;
+
+            Consume(TokenType.Colon, "Expected ':' after parameter name");
+            Type paramType = ParseType();
+
+            method.Parameters.Add((paramName, paramType));
+            _symbols.Define(paramName, paramType);
+
+            if (!Check(TokenType.Rparen))
+            {
+                Consume(TokenType.Comma, "Expected ',' between parameters");
+            }
+        }
+
+        Consume(TokenType.Rparen, "Expected ')' after parameters");
+
+        Type returnType = new VoidType();
+        if (methodName != "init" && Match(TokenType.Arrow))
+        {
+            returnType = ParseType();
+        }
+
+        method.ReturnType = returnType;
+
+        Consume(TokenType.Lbrace, "Expected '{' before method body");
+
+        var entryBlock = new IRBasicBlock { Label = "entry" };
+        method.EntryBlock = entryBlock;
+        method.Blocks.Add(entryBlock);
+
+        ParseBlock(entryBlock, method);
+
+        Consume(TokenType.Rbrace, "Expected '}' after method body");
+
+        _symbols.ExitScope();
+
+        return method;
+    }
 }

@@ -1,3 +1,4 @@
+/*
 fn add(a: i32, b: i32) -> i32 {
     return a + b
 }
@@ -8,4 +9,25 @@ fn main() -> i32 {
     z: i32 = add(x, y)
 
     return z
+}
+*/
+
+class Point {
+    x: i32
+    y: i32
+    
+    init(px: i32, py: i32) {
+        self.x = px
+        self.y = py
+    }
+    
+    sum() -> i32 {
+        return self.x + self.y
+    }
+}
+
+fn main() -> i32 {
+    p: Point
+    p.init(5, 3)
+    return p.sum()
 }

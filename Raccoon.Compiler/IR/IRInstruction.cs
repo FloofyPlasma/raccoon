@@ -89,6 +89,23 @@ public class IRAssignment : IRInstruction
     public override Type GetType() => new VoidType();
 }
 
+public class IRMemberAccess : IRInstruction
+{
+    public IRValue Object { get; set; }
+    public string MemberName { get; set; } = "";
+
+    public override Type GetType() => new IntType(); // TODO: proper type tracking
+}
+
+public class IRMemberAssignment : IRInstruction
+{
+    public IRValue Object { get; set; } = null!;
+    public string MemberName { get; set; } = "";
+    public IRValue Value { get; set; } = null!;
+
+    public override Type GetType() => new VoidType();
+}
+
 public class IRBasicBlock
 {
     public string Label { get; set; } = "";
@@ -128,6 +145,16 @@ public class IRModule
 {
     public List<IRFunction> Functions { get; set; } = [];
     public Dictionary<string, ClassType> Types { get; set; } = [];
+    public List<IRClass> Classes { get; set; } = [];
 
-    public override string ToString() => $"Module({Functions.Count} functions)";
+    public override string ToString() => $"Module({Functions.Count} functions, {Classes.Count} classes)";
+}
+
+public class IRClass
+{
+    public string Name { get; set; } = "";
+    public List<(string name, Type type)> Fields { get; set; } = [];
+    public List<IRFunction> Methods { get; set; } = [];
+
+    public override string ToString() => $"Class({Name})";
 }

@@ -16,7 +16,7 @@ public class Codegen
         _output.AppendLine("#include <stdint.h>");
         _output.AppendLine();
 
-        EmitTypeDefinitions(module);
+        EmitClassStructs(module);
         _output.AppendLine();
 
         foreach (var function in module.Functions)
@@ -35,19 +35,19 @@ public class Codegen
         return _output.ToString();
     }
 
-    private void EmitTypeDefinitions(IRModule module)
+    private void EmitClassStructs(IRModule module)
     {
-        foreach (var typeEntry in module.Types)
+        foreach (var cls in module.Classes)
         {
-            var classType = typeEntry.Value;
-            _output.AppendLine($"typedef struct {classType.Name} {{");
+            _output.AppendLine($"typedef struct {cls.Name} {{");
 
-            foreach (var field in classType.Fields)
+            foreach (var (fieldName, fieldType) in cls.Fields)
             {
-                _output.AppendLine("\t{field.Value.ToCCode()} {field.Key};");
+                _output.AppendLine($"\t{fieldType.ToCCode()} {fieldName};");
             }
 
-            _output.AppendLine($"}} {classType.Name}");
+            _output.AppendLine($"}} {cls.Name};");
+            _output.AppendLine();
         }
     }
 
@@ -180,11 +180,34 @@ public class Codegen
             case IRAssignment assign:
                 EmitAssignment(assign);
                 break;
+            
+            case IRMemberAccess member:
+                EmitMemberAccess(member);
+                break;
+            
+            case IRMemberAssignment memberAssign:
+                EmitMemberAssignment(memberAssign);
+                break;
 
             default:
                 _output.AppendLine($"\t// Unknown instruction: {instr.GetType().ToString()}");
                 break;
         }
+    }
+
+    private void EmitMemberAccess(IRMemberAccess member)
+    {
+        string objStr = ValueToString(member.Object);
+        string resultName = member.ResultName?.TrimStart('%') ?? "tmp";
+        
+        _output.AppendLine($"\t{resultName} = {objStr}.{member.MemberName};");
+    }
+    
+    private void EmitMemberAssignment(IRMemberAssignment assign)
+    {
+        string objStr = ValueToString(assign.Object);
+        string valueStr = ValueToString(assign.Value);
+        _output.AppendLine($"\t{objStr}.{assign.MemberName} = {valueStr};");
     }
 
     private void EmitAssignment(IRAssignment assign)
