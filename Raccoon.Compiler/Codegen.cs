@@ -199,16 +199,24 @@ public class Codegen
     {
         string objStr = ValueToString(member.Object);
         string resultName = member.ResultName?.TrimStart('%') ?? "tmp";
-        
-        _output.AppendLine($"\t{resultName} = {objStr}.{member.MemberName};");
+        string op = IsPointerType(member.Object) ? "->" : ".";
+        _output.AppendLine($"\t{resultName} = {objStr}{op}{member.MemberName};");
     }
-    
+ 
     private void EmitMemberAssignment(IRMemberAssignment assign)
     {
         string objStr = ValueToString(assign.Object);
         string valueStr = ValueToString(assign.Value);
-        _output.AppendLine($"\t{objStr}.{assign.MemberName} = {valueStr};");
+        string op = IsPointerType(assign.Object) ? "->" : ".";
+        _output.AppendLine($"\t{objStr}{op}{assign.MemberName} = {valueStr};");
     }
+
+    private bool IsPointerType(IRValue value)
+    {
+        var type = value.GetType();
+        return type is PointerType;
+    }
+
 
     private void EmitAssignment(IRAssignment assign)
     {
@@ -261,7 +269,7 @@ public class Codegen
     {
         string valueStr = ValueToString(store.Value);
         string addrStr = ValueToString(store.Address);
-        _output.AppendLine("\t*{addrStr} = {valueStr};");
+        _output.AppendLine($"\t*{addrStr} = {valueStr};");
     }
 
     private void EmitCall(IRCall call)

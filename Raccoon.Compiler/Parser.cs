@@ -164,15 +164,54 @@ public class Parser
                 {
                     _current = savePos;
                     var expr = ParseExpression(block, function);
+
+                    if (Match(TokenType.Assign))
+                    {
+                        var rhs = ParseExpression(block, function);
+                        if (expr is IRVariable var)
+                        {
+                            var assign = new IRAssignment { VariableName = var.Name, Value = rhs };
+                            block.Instructions.Add(assign);
+                        }
+                        else
+                        {
+                            Error("Invalid assignment target");
+                        }
+                    }
+
                     Match(TokenType.Semicolon);
                 }
             }
             else
             {
                 var expr = ParseExpression(block, function);
+
+                if (Match(TokenType.Assign))
+                {
+                    var rhs = ParseExpression(block, function);
+
+                    if (expr is IRVariable var)
+                    {
+                        var assign = new IRAssignment { VariableName = var.Name, Value = rhs };
+                        block.Instructions.Add(assign);
+                    }
+                    else if (expr is IRMemberAccess member)
+                    {
+                        var memberAssign = new IRMemberAssignment
+                        {
+                            Object = member.Object,
+                            MemberName = member.MemberName,
+                            Value = rhs,
+                        };
+                        block.Instructions.Add(memberAssign);
+                    }
+                    else
+                    {
+                        Error("Invalid assignment target");
+                    }
+                }
+
                 Match(TokenType.Semicolon);
-                // Error($"Unexpected token in block: {Peek().Lexeme}");
-                Advance();
             }
         }
     }
@@ -631,8 +670,9 @@ public class Parser
         _symbols.EnterScope();
 
         var selfType = new ClassType(className);
-        method.Parameters.Add(("self", new PointerType(selfType)));
-        _symbols.Define("self", selfType);
+        var selfPointerType = new PointerType(selfType);
+        method.Parameters.Add(("self", selfPointerType));
+        _symbols.Define("self", selfPointerType);
 
         while (!Check(TokenType.Rparen))
         {
