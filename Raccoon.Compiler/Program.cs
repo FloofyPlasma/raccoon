@@ -66,7 +66,5 @@ class Program
             Console.Error.WriteLine(ex.StackTrace);
             Environment.Exit(1);
         }
-
-        Console.WriteLine("Hello, World!");
     }
 }
