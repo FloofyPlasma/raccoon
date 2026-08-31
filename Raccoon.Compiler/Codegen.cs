@@ -279,11 +279,11 @@ public class Codegen
 
         if (call.ReturnType is VoidType)
         {
-            _output.AppendLine($"    {call.FunctionName}({args});");
+            _output.AppendLine($"\t{call.FunctionName}({args});");
         }
         else
         {
-            _output.AppendLine($"    {resultName} = {call.FunctionName}({args});");
+            _output.AppendLine($"\t{resultName} = {call.FunctionName}({args});");
         }
     }
 
