@@ -324,11 +324,14 @@ public class Parser
 
                 Consume(TokenType.Rparen, "Expected ')' after arguments");
 
+                // TODO: get rid of this crap
+                Type returnType = memberName == "init" ? new VoidType() : new IntType { BitWidth = 32 };
+                
                 var callInstr = new IRCall
                 {
                     FunctionName = $"{GetTypeNameFromValue(value)}_{memberName}",
                     Arguments = args,
-                    ReturnType = new IntType { BitWidth = 32 },
+                    ReturnType = returnType,
                     ResultName = $"%call{block.Instructions.Count}",
                 };
 
